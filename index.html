@@ -59,6 +59,9 @@ h2{font-size:10px;color:var(--mut);font-weight:400;text-transform:uppercase;lett
 .fx .t button{padding:2px 7px;font-size:11px}
 .pr{display:grid;grid-template-columns:62px 1fr 52px;gap:8px;align-items:center;color:var(--mut)}
 .pr em{font-style:normal;color:var(--tx);text-align:right}
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:20}
+.mbox{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;max-width:92vw;max-height:90vh;overflow:auto;display:flex;flex-direction:column;gap:10px}
+.mt{display:flex;justify-content:space-between;align-items:center;gap:20px}
 #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--tx);color:#000;padding:8px 14px;border-radius:6px;opacity:0;transition:.2s;pointer-events:none;z-index:9}
 #toast.s{opacity:1}
 </style>
@@ -94,8 +97,14 @@ h2{font-size:10px;color:var(--mut);font-weight:400;text-transform:uppercase;lett
   <div id="scroll"><div id="inner"><div id="tracks"></div><div id="ph"></div></div></div>
   <aside><h2 id="insT">plugins</h2><div id="fxs"></div>
     <div class="grp"><select id="plsel"></select><button id="pladd">+ plugin</button></div>
+    <h2 style="margin-top:8px">terceiros · WAM</h2>
+    <select id="wamsel" style="width:100%"><option value="">catálogo da comunidade (experimental)</option></select>
+    <input id="wamurl" class="nm" placeholder="ou cole a URL do index.js do plugin" style="width:100%">
+    <button id="wamadd">carregar plugin</button>
+    <div style="color:var(--mut);font-size:11px">Arquivos .vst/.vst3/.dll do FL Studio não rodam no navegador. WAM é o padrão equivalente para a web.</div>
   </aside>
 </div>
+<div id="modal"><div class="mbox"><div class="mt"><b id="mtitle"></b><button id="mclose">fechar</button></div><div id="mbody"></div></div></div>
 <div id="toast"></div>
 <script>
 const $=(s,e=document)=>e.querySelector(s);
@@ -110,7 +119,8 @@ const M={name:'master',vol:.9,fx:[],master:true};
 const db=v=>Math.pow(10,v/20);
 function makeIR(c,sec){const n=Math.floor(c.sampleRate*sec),b=c.createBuffer(2,n,c.sampleRate);
   for(let ch=0;ch<2;ch++){const d=b.getChannelData(ch);for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,2.5)}return b}
-const P=(k,l,min,max,v,s,u='')=>({k,l,min,max,v,s,u});
+const P=(k,l,min,max,v,s,u='',o=null)=>({k,l,min,max,v,s,u,o});
+const fmtv=(q,v)=>q.o?q.o[Math.round(v)]:(+v).toFixed(q.s<1?2:0)+q.u;
 const PL={
  eq:{name:'EQ',params:[P('low','graves',-15,15,0,.5,'dB'),P('mid','médios',-15,15,0,.5,'dB'),P('high','agudos',-15,15,0,.5,'dB')],
   make(c){const lo=c.createBiquadFilter(),mi=c.createBiquadFilter(),hi=c.createBiquadFilter();
@@ -137,9 +147,37 @@ const PL={
    dl.delayTime.value=.02;i.connect(d);d.connect(o);i.connect(dl);dl.connect(w);w.connect(o);l.connect(lg);lg.connect(dl.delayTime);l.start();
    return{in:i,out:o,stop:()=>{try{l.stop()}catch{}},set:(k,v)=>{if(k==='rate')l.frequency.value=v;if(k==='depth')lg.gain.value=v*.008;if(k==='mix'){d.gain.value=1-v*.5;w.gain.value=v}}}}}
 };
+Object.assign(PL,{
+ filter:{name:'filtro',params:[P('type','tipo',0,2,0,1,'',['passa-baixa','passa-alta','passa-banda']),P('freq','freq',40,16000,2000,10,'hz'),P('res','res',.1,20,1,.1)],
+  make(c){const f=c.createBiquadFilter(),T=['lowpass','highpass','bandpass'];
+   return{in:f,out:f,set:(k,v)=>{if(k==='type')f.type=T[Math.round(v)];if(k==='freq')f.frequency.value=v;if(k==='res')f.Q.value=v}}}},
+ phaser:{name:'phaser',params:[P('rate','taxa',.05,5,.4,.05,'hz'),P('depth','prof.',0,1,.6,.01),P('mix','mix',0,1,.5,.01)],
+  make(c){const i=c.createGain(),o=c.createGain(),d=c.createGain(),w=c.createGain(),l=c.createOscillator(),lg=c.createGain();
+   i.connect(d);d.connect(o);let prev=i;
+   for(let n=0;n<4;n++){const a=c.createBiquadFilter();a.type='allpass';a.frequency.value=1200;a.Q.value=.7;prev.connect(a);lg.connect(a.frequency);prev=a}
+   prev.connect(w);w.connect(o);l.connect(lg);l.start();
+   return{in:i,out:o,stop:()=>{try{l.stop()}catch{}},set:(k,v)=>{if(k==='rate')l.frequency.value=v;if(k==='depth')lg.gain.value=v*900;if(k==='mix'){d.gain.value=1-v*.5;w.gain.value=v}}}}},
+ flanger:{name:'flanger',params:[P('rate','taxa',.05,5,.25,.05,'hz'),P('depth','prof.',0,1,.7,.01),P('fb','feedback',0,.9,.5,.01),P('mix','mix',0,1,.5,.01)],
+  make(c){const i=c.createGain(),o=c.createGain(),d=c.createGain(),w=c.createGain(),dl=c.createDelay(.05),fb=c.createGain(),l=c.createOscillator(),lg=c.createGain();
+   dl.delayTime.value=.004;i.connect(d);d.connect(o);i.connect(dl);dl.connect(w);w.connect(o);dl.connect(fb);fb.connect(dl);l.connect(lg);lg.connect(dl.delayTime);l.start();
+   return{in:i,out:o,stop:()=>{try{l.stop()}catch{}},set:(k,v)=>{if(k==='rate')l.frequency.value=v;if(k==='depth')lg.gain.value=v*.003;if(k==='fb')fb.gain.value=v;if(k==='mix'){d.gain.value=1-v*.5;w.gain.value=v}}}}},
+ tremolo:{name:'tremolo',params:[P('rate','taxa',.5,15,5,.1,'hz'),P('depth','prof.',0,1,.5,.01)],
+  make(c){const g=c.createGain(),l=c.createOscillator(),lg=c.createGain();l.connect(lg);lg.connect(g.gain);l.start();
+   return{in:g,out:g,stop:()=>{try{l.stop()}catch{}},set:(k,v)=>{if(k==='rate')l.frequency.value=v;if(k==='depth'){lg.gain.value=v/2;g.gain.value=1-v/2}}}}},
+ bitcrush:{name:'bitcrush',params:[P('bits','bits',2,16,8,1),P('mix','mix',0,1,1,.01)],
+  make(c){const i=c.createGain(),o=c.createGain(),d=c.createGain(),w=c.createGain(),ws=c.createWaveShaper();i.connect(d);d.connect(o);i.connect(ws);ws.connect(w);w.connect(o);
+   return{in:i,out:o,set:(k,v)=>{if(k==='bits'){const n=65536,h=Math.pow(2,v-1),cu=new Float32Array(n);for(let j=0;j<n;j++){const x=j*2/(n-1)-1;cu[j]=Math.round(x*h)/h}ws.curve=cu}if(k==='mix'){d.gain.value=1-v;w.gain.value=v}}}}},
+ limiter:{name:'limiter',params:[P('gain','entrada',0,18,0,.5,'dB'),P('ceil','teto',-30,0,-3,.5,'dB'),P('release','release',20,500,100,10,'ms')],
+  make(c){const g=c.createGain(),k=c.createDynamicsCompressor();k.knee.value=0;k.ratio.value=20;k.attack.value=.001;g.connect(k);
+   return{in:g,out:k,set:(p,v)=>{if(p==='gain')g.gain.value=db(v);if(p==='ceil')k.threshold.value=v;if(p==='release')k.release.value=v/1000}}}},
+ wam:{name:'WAM',hidden:true,params:[],
+  make(c,f){const i=c.createGain(),o=c.createGain(),w=f&&c===ac?wamNode(f):null;
+   if(w){i.connect(w);w.connect(o)}else i.connect(o);
+   return{in:i,out:o,set(){},stop(){try{w&&w.disconnect()}catch{}}}}}
+});
 function chain(c,fx,inN,outN,live){
   let prev=inN;const insts=[];
-  fx.forEach(f=>{if(live)f.inst=null;if(f.bypass)return;const p=PL[f.type],i=p.make(c);
+  fx.forEach(f=>{if(live)f.inst=null;if(f.bypass)return;if(f.type==='wam'&&c!==ac)return;const p=PL[f.type],i=p.make(c,f);
     p.params.forEach(q=>i.set(q.k,f.p[q.k]));prev.connect(i.in);prev=i.out;insts.push(i);if(live)f.inst=i});
   prev.connect(outN);return insts;
 }
@@ -352,9 +390,11 @@ function renderFx(){
   const box=$('#fxs');box.innerHTML='';
   o.fx.forEach((f,idx)=>{
     const p=PL[f.type],d=document.createElement('div');d.className='fx'+(f.bypass?' off':'');
-    d.innerHTML=`<div class="t"><b>${p.name}</b><button data-b="up">↑</button><button data-b="by" class="${f.bypass?'':'on'}">on</button><button data-b="rm">×</button></div>`+
-      p.params.map(q=>`<div class="pr"><span>${q.l}</span><input type="range" min="${q.min}" max="${q.max}" step="${q.s}" value="${f.p[q.k]}" data-k="${q.k}"><em>${(+f.p[q.k]).toFixed(q.s<1?2:0)}${q.u}</em></div>`).join('');
-    d.querySelectorAll('input').forEach(i=>i.oninput=()=>{const q=p.params.find(x=>x.k===i.dataset.k);f.p[q.k]=+i.value;f.inst&&f.inst.set(q.k,+i.value);i.nextElementSibling.textContent=(+i.value).toFixed(q.s<1?2:0)+q.u});
+    const isW=f.type==='wam';
+    d.innerHTML=`<div class="t"><b>${isW?(f.p.name||'WAM').replace(/</g,'&lt;'):p.name}</b>${isW&&f._wam?'<button data-b="gui">gui</button>':''}<button data-b="up">↑</button><button data-b="by" class="${f.bypass?'':'on'}">on</button><button data-b="rm">×</button></div>`+
+      p.params.map(q=>`<div class="pr"><span>${q.l}</span><input type="range" min="${q.min}" max="${q.max}" step="${q.s}" value="${f.p[q.k]}" data-k="${q.k}"><em>${fmtv(q,f.p[q.k])}</em></div>`).join('');
+    d.querySelectorAll('input').forEach(i=>i.oninput=()=>{const q=p.params.find(x=>x.k===i.dataset.k);f.p[q.k]=+i.value;f.inst&&f.inst.set(q.k,+i.value);i.nextElementSibling.textContent=fmtv(q,+i.value)});
+    const gb=d.querySelector('[data-b=gui]');if(gb)gb.onclick=()=>openGui(f);
     d.querySelector('[data-b=by]').onclick=()=>{f.bypass=!f.bypass;rebuild(o);renderFx()};
     d.querySelector('[data-b=rm]').onclick=()=>{o.fx.splice(idx,1);rebuild(o);renderFx()};
     d.querySelector('[data-b=up]').onclick=()=>{if(idx>0){[o.fx[idx-1],o.fx[idx]]=[o.fx[idx],o.fx[idx-1]];rebuild(o);renderFx()}};
@@ -362,7 +402,50 @@ function renderFx(){
   });
   if(!o.fx.length)box.innerHTML='<div style="color:var(--mut)">nenhum plugin. adicione abaixo.</div>';
 }
-$('#plsel').innerHTML=Object.entries(PL).map(([k,v])=>`<option value="${k}">${v.name}</option>`).join('');
+$('#plsel').innerHTML=Object.entries(PL).filter(([k,v])=>!v.hidden).map(([k,v])=>`<option value="${k}">${v.name}</option>`).join('');
+
+/* ---------- plugins de terceiros (WAM) ---------- */
+let wamHost=null,wamFilled=false,curGui=null;
+const SDKS=['https://esm.sh/@webaudiomodules/sdk','https://cdn.jsdelivr.net/npm/@webaudiomodules/sdk/+esm'];
+const wamNode=f=>f._wam&&(f._wam.audioNode||(f._wam.getAudioNode&&f._wam.getAudioNode()));
+async function getHost(){
+  if(wamHost!==null)return wamHost;let mod=null;
+  for(const u of SDKS){try{mod=await import(u);break}catch(e){}}
+  if(!mod)throw new Error('sdk');
+  const init=mod.initializeWamHost||(mod.default&&mod.default.initializeWamHost)||(typeof mod.default==='function'?mod.default:null);
+  if(!init)throw new Error('sdk');
+  const r=await init(ac);wamHost=Array.isArray(r)?r[0]:r;return wamHost;
+}
+async function loadWam(f){
+  const host=await getHost().catch(()=>null);
+  const mod=await import(f.p.url),F=mod.default||mod;let inst;
+  try{inst=host!==null?await F.createInstance(host,ac,{}):await F.createInstance(ac,{})}catch(e){inst=await F.createInstance(ac,{})}
+  f._wam=inst;const d=F.descriptor||inst.descriptor||{};
+  f.p.name=d.name||(f.p.name&&f.p.name!=='carregando…'?f.p.name:(f.p.url.split('/').slice(-2)[0]||'plugin'));
+  if(f._owner)rebuild(f._owner);renderFx();
+}
+async function openGui(f){
+  try{const el=await f._wam.createGui();curGui={f,el};$('#mtitle').textContent=f.p.name;const b=$('#mbody');b.innerHTML='';b.appendChild(el);$('#modal').style.display='flex'}
+  catch(e){toast('este plugin não tem interface')}
+}
+$('#mclose').onclick=()=>{try{curGui&&curGui.f._wam.destroyGui&&curGui.f._wam.destroyGui(curGui.el)}catch{}curGui=null;$('#modal').style.display='none';$('#mbody').innerHTML=''};
+async function fillWam(){
+  if(wamFilled)return;wamFilled=true;const sel=$('#wamsel');
+  try{const j=await (await fetch('https://www.webaudiomodules.com/community/plugins.json')).json();
+    const arr=Array.isArray(j)?j:(j.plugins||Object.values(j));
+    arr.forEach(e=>{const path=e&&(e.path||e.url||e.src);if(!path)return;
+      let u=/^https?:/.test(path)?path:'https://www.webaudiomodules.com/community/plugins/'+String(path).replace(/^\/+/,'');
+      if(!/\.js$/.test(u))u=u.replace(/\/$/,'')+'/index.js';
+      sel.add(new Option((e.name||e.label||path)+(e.vendor?' · '+e.vendor:''),u))});
+  }catch(e){toast('catálogo indisponível — cole a URL do plugin')}
+}
+$('#wamsel').onfocus=fillWam;
+$('#wamadd').onclick=()=>{
+  const url=$('#wamurl').value.trim()||$('#wamsel').value;if(!url)return toast('escolha ou cole a URL de um plugin WAM');
+  const o=selected||M,f={type:'wam',p:{url,name:'carregando…'},bypass:false,_owner:o};o.fx.push(f);rebuild(o);renderFx();
+  loadWam(f).catch(e=>{toast('não consegui carregar esse plugin');const i=o.fx.indexOf(f);if(i>=0)o.fx.splice(i,1);rebuild(o);renderFx()});
+  $('#wamurl').value='';
+};
 $('#pladd').onclick=()=>{const o=selected||M,k=$('#plsel').value,p={};PL[k].params.forEach(q=>p[q.k]=q.v);o.fx.push({type:k,p,bypass:false});rebuild(o);renderFx()};
 
 /* ---------- loop / meters ---------- */
@@ -396,7 +479,7 @@ async function exportWav(){
   const w=(o,s)=>[...s].forEach((c,i)=>d.setUint8(o+i,c.charCodeAt(0)));
   w(0,'RIFF');d.setUint32(4,36+n*4,true);w(8,'WAVEfmt ');d.setUint32(16,16,true);d.setUint16(20,1,true);d.setUint16(22,2,true);d.setUint32(24,sr,true);d.setUint32(28,sr*4,true);d.setUint16(32,4,true);d.setUint16(34,16,true);w(36,'data');d.setUint32(40,n*4,true);
   let o=44;for(let i=0;i<n;i++)for(const x of[L[i],R[i]]){const v=Math.max(-1,Math.min(1,x));d.setInt16(o,v<0?v*32768:v*32767,true);o+=2}
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([d],{type:'audio/wav'}));a.download='pulsekid.wav';a.click();toast('exportado');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([d],{type:'audio/wav'}));a.download='pulsekid.wav';a.click();toast([...tracks,M].some(o=>o.fx.some(f=>f.type==='wam'&&!f.bypass))?'exportado — plugins WAM não entram no WAV':'exportado');
 }
 $('#exp').onclick=exportWav;
 
@@ -474,6 +557,7 @@ addEventListener('keydown',e=>{
   const ok=await loadProject();
   if(!ok){while(tracks.length){const t=tracks.pop();try{t.panN.disconnect();t.in.disconnect()}catch{}}const t=mkTrack();t.arm=true;selected=t}
   render();ui();
+  [...tracks,M].forEach(o=>o.fx.forEach(f=>{if(f.type==='wam'&&!f._wam){f._owner=o;loadWam(f).catch(()=>toast('falha ao carregar o plugin '+(f.p.name||'')))}}));
 })();
 </script>
 </body>
