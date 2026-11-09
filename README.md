@@ -16,3 +16,22 @@ DAW web minimalista focado em gravação e plugins. Arquivo único, sem dependê
 Atalhos: espaço play/pause · R gravar · M metrônomo · L loop · S cortar · Delete apagar · Ctrl+D duplicar · Ctrl+Z / Ctrl+Shift+Z · Ctrl+S salvar
 
 Publicado via GitHub Pages: Settings → Pages → Deploy from branch → `main` / root.
+
+## Estrutura
+
+```
+index.html        estrutura da página
+css/style.css     visual
+js/core.js        estado global e AudioContext
+js/plugins.js     rack de plugins (EQ, compressor, reverb, delay, drive, chorus, filtro, phaser, flanger, tremolo, bitcrush, limiter, noise gate)
+js/audio.js       grafo de áudio, tempo/loop, transporte, metrônomo, gravação
+js/clips.js       edição de clipes, fades, takes, desfazer/refazer
+js/ui.js          renderização das trilhas e do painel de plugins
+js/wam.js         plugins de terceiros (Web Audio Modules)
+js/io.js          medidores, importar áudio, exportar WAV
+js/project.js     salvar/carregar projeto (IndexedDB)
+js/tuner.js       afinador offline e medidor de afinação ao vivo
+js/main.js        zoom, atalhos e inicialização
+```
+
+Sem build e sem dependências: são scripts comuns que compartilham o mesmo escopo, carregados em ordem pelo `index.html`. A ordem dos `<script>` importa.
