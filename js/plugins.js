@@ -18,10 +18,15 @@ const PL={
    const i=c.createGain();i.connect(n);let an=null;if(c===ac){an=c.createAnalyser();an.fftSize=1024;i.connect(an)}
    const inst={in:i,out:n,an,gr:0,set:(k,v)=>{const q=n.parameters.get(k);if(q)q.value=v}};
    n.port.onmessage=e=>{inst.gr=e.data};return inst}},
- reverb:{name:'reverb',params:[P('size','tamanho',.3,5,1.8,.1,'s'),P('mix','mix',0,1,.25,.01)],
-  make(c){const i=c.createGain(),o=c.createGain(),d=c.createGain(),w=c.createGain(),cv=c.createConvolver();
-   i.connect(d);d.connect(o);i.connect(cv);cv.connect(w);w.connect(o);
-   return{in:i,out:o,set:(k,v)=>{if(k==='size')cv.buffer=makeIR(c,v);if(k==='mix'){d.gain.value=Math.cos(v*Math.PI/2);w.gain.value=Math.sin(v*Math.PI/2)*1.3}}}}},
+ reverb:{name:'reverb',editor:(f,o)=>openReverb(f,o),
+  params:[P('size','tamanho',.2,6,1.8,.1,'s'),P('pre','pré',0,200,0,1,'ms'),P('damp','abafar',0,1,.35,.01),P('lowcut','low cut',20,600,80,5,'hz'),P('mix','mix',0,1,.25,.01)],
+  make(c){
+   const i=c.createGain(),o=c.createGain(),d=c.createGain(),w=c.createGain(),pd=c.createDelay(.5),hp=c.createBiquadFilter(),cv=c.createConvolver(),st={size:1.8,damp:.35};
+   hp.type='highpass';hp.Q.value=.7;i.connect(d);d.connect(o);i.connect(pd);pd.connect(hp);hp.connect(cv);cv.connect(w);w.connect(o);
+   return{in:i,out:o,set:(k,v)=>{
+     if(k==='size'||k==='damp'){st[k]=v;cv.buffer=reverbIR(c,st.size,st.damp)}
+     if(k==='pre')pd.delayTime.value=v/1000;if(k==='lowcut')hp.frequency.value=v;
+     if(k==='mix'){d.gain.value=Math.cos(v*Math.PI/2);w.gain.value=Math.sin(v*Math.PI/2)*1.3}}}}},
  delay:{name:'delay',params:[P('time','tempo',.02,1,.3,.01,'s'),P('fb','feedback',0,.9,.35,.01),P('mix','mix',0,1,.3,.01)],
   make(c){const i=c.createGain(),o=c.createGain(),d=c.createGain(),w=c.createGain(),dl=c.createDelay(2),fb=c.createGain();
    i.connect(d);d.connect(o);i.connect(dl);dl.connect(w);w.connect(o);dl.connect(fb);fb.connect(dl);
