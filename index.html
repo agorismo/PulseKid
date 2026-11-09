@@ -15,7 +15,7 @@ button,select{background:var(--panel);color:var(--tx);border:1px solid var(--lin
 button:hover,select:hover{border-color:#3a3a44}
 button.on{background:var(--tx);color:#000;border-color:var(--tx)}
 button.arm.on{background:var(--rec);border-color:var(--rec);color:#fff}
-#metro.on,#loop.on{background:var(--amb);border-color:var(--amb);color:#000}
+#metro.on,#loop.on,#cnt.on{background:var(--amb);border-color:var(--amb);color:#000}
 #rc{color:var(--rec)}#rc.on{background:var(--rec);color:#fff;border-color:var(--rec);animation:p 1s infinite}
 @keyframes p{50%{opacity:.55}}
 .grp{display:flex;align-items:center;gap:6px;color:var(--mut)}
@@ -44,6 +44,10 @@ input[type=number]{width:54px;text-align:center}
 .clip{position:absolute;top:10px;height:68px;border-radius:5px;background:rgba(255,143,163,.1);border:1px solid rgba(255,143,163,.35);overflow:hidden;cursor:grab;touch-action:none}
 .clip canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .clip.sel{border-color:#fff;background:rgba(255,255,255,.12)}
+.fz{position:absolute;top:0;bottom:0;background:rgba(0,0,0,.5);pointer-events:none}
+.fz.fi{left:0;clip-path:polygon(0 0,100% 0,0 100%)}.fz.fo{right:0;clip-path:polygon(0 0,100% 0,100% 100%)}
+.fh{position:absolute;top:2px;width:10px;height:10px;border-radius:50%;background:#fff;opacity:.5;z-index:2;cursor:ew-resize;margin-left:-1px}
+.fh.fo{margin-left:0;margin-right:-1px}.fh:hover{opacity:1}
 .h{position:absolute;top:0;bottom:0;width:7px;cursor:ew-resize;z-index:1}.h.l{left:0}.h.r{right:0}
 .prev{position:absolute;top:10px;height:68px;border-radius:5px;background:rgba(255,59,87,.2);border:1px solid var(--rec);pointer-events:none}
 .lp{position:absolute;pointer-events:none}
@@ -83,6 +87,7 @@ h2{font-size:10px;color:var(--mut);font-weight:400;text-transform:uppercase;lett
 <div class="bar">
   <div class="grp">bpm <input id="bpm" type="number" min="30" max="300" value="120"></div>
   <button id="metro" title="metrônomo (M)">metrônomo</button>
+  <button id="cnt" title="contagem de 1 compasso antes de gravar">contagem</button>
   <button id="loop" title="loop (L) · arraste na régua para definir a região">loop</button>
   <button id="snap" class="on" title="alinhar à grade de tempo">snap</button>
   <span class="vr"></span>
@@ -113,7 +118,7 @@ const $=(s,e=document)=>e.querySelector(s);
 const ac=new (window.AudioContext||window.webkitAudioContext)({latencyHint:'interactive'});
 let pps=60,D=30,uid=0,cid=0,selected=null,selClip=null,playing=false,t0=0,pos0=0,srcs=[],recording=false,rec=null;
 let micStream,micSrc,micAn,worklet,chunks=[];
-let loopOn=false,loopA=0,loopB=0,metro=false,nextBeat=0,lapPending=false;
+let loopOn=false,loopA=0,loopB=0,metro=false,nextBeat=0,lapPending=false,counting=false,countOsc=[];
 const tracks=[];
 const M={name:'master',vol:.9,fx:[],master:true};
 
@@ -222,7 +227,7 @@ function mkTrack(name,extra={}){
   t.in=ac.createGain();t.gainN=ac.createGain();t.panN=ac.createStereoPanner();t.outN=t.gainN;
   t.gainN.connect(t.panN);t.panN.connect(M.in);rebuild(t);tracks.push(t);return t;
 }
-function addClip(t,buf,start,off=0,dur){const c={id:++cid,buf,start,off,dur:dur??(buf.duration-off)};t.clips.push(c);return c}
+function addClip(t,buf,start,off=0,dur){const c={id:++cid,buf,start,off,dur:dur??(buf.duration-off),fi:0,fo:0};t.clips.push(c);return c}
 function addTrack(name,buf,start=0){const t=mkTrack(name);if(buf)addClip(t,buf,start);mix();render();select(t);return t}
 const bidOf=b=>b._bid||(b._bid=Date.now().toString(36)+Math.random().toString(36).slice(2,7));
 
@@ -236,7 +241,16 @@ const loopActive=()=>loopOn&&!recording&&loopB>loopA+.01&&pos0<loopB;
 const pos=()=>{if(!playing)return pos0;const p=Math.max(pos0,pos0+ac.currentTime-t0);return loopActive()?Math.min(p,loopB):p};
 function scheduleRange(a,T,b){
   tracks.forEach(t=>t.clips.forEach(c=>{const cs=c.start,ce=cs+c.dur;if(ce<=a||cs>=b)return;const s=Math.max(cs,a),e=Math.min(ce,b);if(e-s<.001)return;
-    const src=ac.createBufferSource();src.buffer=c.buf;src.connect(t.in);src.start(T+(s-a),c.off+(s-cs),e-s);srcs.push(src)}));
+    const src=ac.createBufferSource();src.buffer=c.buf;src.connect(fadeGain(ac,c,T+(s-a),s-cs,e-cs,t.in));src.start(T+(s-a),c.off+(s-cs),e-s);srcs.push(src)}));
+}
+/* envelope de fade do clipe: x0..x1 = trecho tocado (segundos dentro do clipe), T = tempo do contexto em x0 */
+function fadeGain(ctx,c,T,x0,x1,dest){
+  const g=ctx.createGain(),fi=c.fi||0,fo=c.fo||0,d=c.dur;
+  const v=x=>Math.max(0,Math.min(1,fi>0?x/fi:1,fo>0?(d-x)/fo:1));
+  g.gain.setValueAtTime(v(x0),T);
+  if(fi>0&&x0<fi)g.gain.linearRampToValueAtTime(v(Math.min(fi,x1)),T+(Math.min(fi,x1)-x0));
+  if(fo>0&&x1>d-fo){const xs=Math.max(x0,d-fo);if(xs>x0)g.gain.setValueAtTime(v(xs),T+(xs-x0));g.gain.linearRampToValueAtTime(v(x1),T+(x1-x0))}
+  g.connect(dest);return g;
 }
 const metroReset=p=>{nextBeat=Math.ceil(p/spb()-1e-6)};
 function schedule(){t0=ac.currentTime+.05;srcs=[];lapPending=false;scheduleRange(pos0,t0,loopActive()?loopB:Infinity);metroReset(pos0)}
@@ -244,14 +258,14 @@ function stopSrcs(){srcs.forEach(s=>{try{s.stop()}catch{}});srcs=[]}
 async function play(){await ac.resume();if(playing)return;playing=true;schedule();ui()}
 function pause(){if(!playing)return;pos0=pos();playing=false;stopSrcs();ui()}
 function seek(p){if(recording)return;const w=playing;if(w)pause();pos0=Math.max(0,p);if(w)play();ui()}
-function ui(){$('#pp').textContent=playing?'❚❚':'▶';$('#rc').classList.toggle('on',recording);$('#metro').classList.toggle('on',metro);$('#loop').classList.toggle('on',loopOn)}
+function ui(){$('#pp').textContent=playing?'❚❚':'▶';$('#rc').classList.toggle('on',recording||counting);$('#metro').classList.toggle('on',metro);$('#loop').classList.toggle('on',loopOn)}
 $('#pp').onclick=()=>playing?(recording?stopRec():pause()):play();
 $('#rw').onclick=()=>seek(0);
 
 /* metrônomo + loop sem emenda (agenda adiante) */
 function click(when,acc){const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=acc?1600:1000;
   g.gain.setValueAtTime(.0001,when);g.gain.exponentialRampToValueAtTime(.3,when+.002);g.gain.exponentialRampToValueAtTime(.0001,when+.05);
-  o.connect(g);g.connect(ac.destination);o.start(when);o.stop(when+.06)}
+  o.connect(g);g.connect(ac.destination);o.start(when);o.stop(when+.06);return o}
 function tick(){
   if(!playing)return;
   if(loopActive()){const endT=t0+(loopB-pos0);
@@ -281,14 +295,25 @@ async function setupMic(){
 }
 function updateMon(){if(!micSrc)return;tracks.forEach(t=>{try{micSrc.disconnect(t.in)}catch{}if(t.arm&&t.mon)micSrc.connect(t.in)})}
 $('#dev').onchange=()=>setupMic().catch(e=>toast('erro no microfone'));
+const cntOn=()=>$('#cnt').classList.contains('on');
+$('#cnt').onclick=e=>e.currentTarget.classList.toggle('on');
+function cancelCount(){counting=false;countOsc.forEach(o=>{try{o.stop()}catch{}});countOsc=[];ui()}
 async function startRec(){
+  if(counting)return;
   const tr=tracks.find(t=>t.arm);if(!tr)return toast('arme uma trilha com o botão R');
   try{await ac.resume();await setupMic();
     if(!worklet){await ac.audioWorklet.addModule(URL.createObjectURL(new Blob([WK],{type:'application/javascript'})));
       worklet=new AudioWorkletNode(ac,'rec');worklet.port.onmessage=e=>{if(recording)chunks.push(e.data)};
       const z=ac.createGain();z.gain.value=0;worklet.connect(z);z.connect(ac.destination);micSrc.connect(worklet)}
   }catch(e){return toast('não consegui acessar o microfone')}
-  chunks=[];if(playing)pause();
+  if(playing)pause();
+  if(cntOn()){
+    counting=true;ui();toast('contagem…');const T0=ac.currentTime+.08,sp=spb();
+    countOsc=[0,1,2,3].map(i=>click(T0+i*sp,i===0));
+    await new Promise(r=>setTimeout(r,(.08+4*sp)*1000));
+    if(!counting)return;counting=false;
+  }
+  chunks=[];
   recording=true;await play();
   const lat=(ac.baseLatency||0)+(ac.outputLatency||0)+(+$('#lat').value||0)/1000;
   rec={t:tr,start:pos0+(ac.currentTime-t0)-lat,from:pos0};
@@ -306,7 +331,7 @@ function stopRec(){
     pushUndo();selClip=addClip(rec.t,b,start);pos0=rec.from;render();ui();
   },80);
 }
-$('#rc').onclick=()=>recording?stopRec():startRec();
+$('#rc').onclick=()=>recording?stopRec():counting?cancelCount():startRec();
 
 /* ---------- edição de clipes ---------- */
 let undoS=[],redoS=[];
@@ -323,7 +348,7 @@ function doSplit(){
   else(selected&&!selected.master?[selected]:tracks).forEach(t=>t.clips.forEach(c=>{if(p>c.start+.01&&p<c.start+c.dur-.01)cands.push(c)}));
   if(!cands.length)return toast('posicione o cursor sobre um clipe');
   pushUndo();
-  cands.forEach(c=>{const t=ownerOf(c),e=c.start+c.dur,r={...c,id:++cid,start:p,off:c.off+(p-c.start),dur:e-p};c.dur=p-c.start;t.clips.splice(t.clips.indexOf(c)+1,0,r)});
+  cands.forEach(c=>{const t=ownerOf(c),e=c.start+c.dur,r={...c,id:++cid,start:p,off:c.off+(p-c.start),dur:e-p,fi:0};c.dur=p-c.start;c.fi=Math.min(c.fi||0,c.dur);c.fo=0;r.fo=Math.min(r.fo||0,r.dur);t.clips.splice(t.clips.indexOf(c)+1,0,r)});
   render();refreshPlay();
 }
 function doDup(){
@@ -340,17 +365,19 @@ function trackAtY(y){for(const r of document.querySelectorAll('.row[data-id]')){
 function clipDown(e,t,c,el){
   e.stopPropagation();e.preventDefault();if(recording)return;
   selClip=c;document.querySelectorAll('.clip.sel').forEach(x=>x.classList.remove('sel'));el.classList.add('sel');if(selected!==t)select(t);
-  const mode=e.target.dataset.h||'move',sx=e.clientX,o={start:c.start,off:c.off,dur:c.dur},nv={...o,track:t};let moved=false;
+  const mode=e.target.dataset.h||'move',sx=e.clientX,o={start:c.start,off:c.off,dur:c.dur,fi:c.fi||0,fo:c.fo||0},nv={...o,track:t};let moved=false;
   const mv=ev=>{
     if(!moved&&Math.abs(ev.clientX-sx)<4)return;moved=true;const dx=(ev.clientX-sx)/pps;
     if(mode==='move'){nv.start=Math.max(0,snap(o.start+dx));el.style.left=nv.start*pps+'px';
       document.querySelectorAll('.row.drop').forEach(r=>r.classList.remove('drop'));
       const tr=trackAtY(ev.clientY);if(tr){nv.track=tr;$('.row[data-id="'+tr.id+'"]').classList.add('drop')}}
     else if(mode==='l'){let d=snap(o.start+dx)-o.start;d=Math.min(Math.max(d,-o.off,-o.start),o.dur-.05);nv.start=o.start+d;nv.off=o.off+d;nv.dur=o.dur-d;el.style.left=nv.start*pps+'px';el.style.width=nv.dur*pps+'px'}
-    else{const ne=snap(o.start+o.dur+dx);nv.dur=Math.min(c.buf.duration-o.off,Math.max(.05,ne-o.start));el.style.width=nv.dur*pps+'px'}
+    else if(mode==='r'){const ne=snap(o.start+o.dur+dx);nv.dur=Math.min(c.buf.duration-o.off,Math.max(.05,ne-o.start));el.style.width=nv.dur*pps+'px'}
+    else if(mode==='fi'){nv.fi=Math.max(0,Math.min(o.dur-o.fo,o.fi+dx));fadeUI(el,nv.fi,nv.fo)}
+    else if(mode==='fo'){nv.fo=Math.max(0,Math.min(o.dur-o.fi,o.fo-dx));fadeUI(el,nv.fi,nv.fo)}
   };
   const up=()=>{removeEventListener('pointermove',mv);removeEventListener('pointerup',up);
-    if(!moved)return;pushUndo();c.start=nv.start;c.off=nv.off;c.dur=nv.dur;
+    if(!moved)return;pushUndo();c.start=nv.start;c.off=nv.off;c.dur=nv.dur;c.fi=Math.min(nv.fi,nv.dur);c.fo=Math.min(nv.fo,nv.dur-c.fi);
     if(nv.track!==t){t.clips.splice(t.clips.indexOf(c),1);nv.track.clips.push(c)}
     render();refreshPlay()};
   addEventListener('pointermove',mv);addEventListener('pointerup',up);
@@ -384,7 +411,8 @@ function render(){
     lane.onclick=e=>{if(e.target===lane){selClip=null;document.querySelectorAll('.clip.sel').forEach(x=>x.classList.remove('sel'));seek((e.clientX-lane.getBoundingClientRect().left)/pps)}};
     if(!t.master)t.clips.forEach(c=>{
       const el=document.createElement('div');el.className='clip'+(c===selClip?' sel':'');el.style.left=c.start*pps+'px';el.style.width=Math.max(3,c.dur*pps)+'px';
-      el.innerHTML='<canvas></canvas><i class="h l" data-h="l"></i><i class="h r" data-h="r"></i>';drawWave($('canvas',el),c);
+      el.innerHTML='<canvas></canvas><i class="fz fi"></i><i class="fz fo"></i><i class="h l" data-h="l"></i><i class="h r" data-h="r"></i><i class="fh fi" data-h="fi" title="fade in"></i><i class="fh fo" data-h="fo" title="fade out"></i>';
+      drawWave($('canvas',el),c);fadeUI(el,c.fi||0,c.fo||0);
       el.onpointerdown=e=>clipDown(e,t,c,el);lane.appendChild(el)});
     r.onclick=e=>{if(e.target.closest('.head')&&selected!==t)select(t)};
     r.querySelectorAll('[data-a]').forEach(el=>{const a=el.dataset.a;
@@ -401,6 +429,10 @@ function render(){
     box.appendChild(r);
   });
   drawLoop();renderFx();
+}
+function fadeUI(el,fi,fo){
+  $('.fz.fi',el).style.width=fi*pps+'px';$('.fz.fo',el).style.width=fo*pps+'px';
+  $('.fh.fi',el).style.left=fi*pps+'px';$('.fh.fo',el).style.right=fo*pps+'px';
 }
 function drawLoop(){
   document.querySelectorAll('.lp').forEach(e=>e.remove());if(loopB<=loopA+.01)return;
@@ -505,7 +537,7 @@ async function exportWav(){
   const any=tracks.some(t=>t.solo);
   tracks.forEach(t=>{if(!t.clips.length||t.mute||(any&&!t.solo))return;const i=off.createGain(),g=off.createGain(),pn=off.createStereoPanner();
     g.gain.value=t.vol;pn.pan.value=t.pan;chain(off,t.fx,i,g,false);g.connect(pn);pn.connect(mi);
-    t.clips.forEach(c=>{const s=off.createBufferSource();s.buffer=c.buf;s.connect(i);s.start(c.start,c.off,c.dur)})});
+    t.clips.forEach(c=>{const s=off.createBufferSource();s.buffer=c.buf;s.connect(fadeGain(off,c,c.start,0,c.dur,i));s.start(c.start,c.off,c.dur)})});
   const r=await off.startRendering(),n=r.length,L=r.getChannelData(0),R=r.getChannelData(1),d=new DataView(new ArrayBuffer(44+n*4));
   const w=(o,s)=>[...s].forEach((c,i)=>d.setUint8(o+i,c.charCodeAt(0)));
   w(0,'RIFF');d.setUint32(4,36+n*4,true);w(8,'WAVEfmt ');d.setUint32(16,16,true);d.setUint16(20,1,true);d.setUint16(22,2,true);d.setUint32(24,sr,true);d.setUint32(28,sr*4,true);d.setUint16(32,4,true);d.setUint16(34,16,true);w(36,'data');d.setUint32(40,n*4,true);
@@ -520,10 +552,10 @@ const idbp=async(mode,fn)=>{const d=await idb;return new Promise((res,rej)=>{con
 const dbGet=k=>idbp('readonly',s=>s.get(k)),dbPut=(k,v)=>idbp('readwrite',s=>s.put(v,k)),dbDel=k=>idbp('readwrite',s=>s.delete(k)),dbKeys=()=>idbp('readonly',s=>s.getAllKeys()),dbClear=()=>idbp('readwrite',s=>s.clear());
 const stored=new Set();let lastMeta='',saving=false;
 const fxMeta=f=>({type:f.type,p:f.p,bypass:f.bypass});
-const getMeta=()=>({v:1,bpm:+$('#bpm').value||120,metro,snap:snapOn(),loop:{a:loopA,b:loopB,on:loopOn},pps,
+const getMeta=()=>({v:1,bpm:+$('#bpm').value||120,metro,cnt:cntOn(),snap:snapOn(),loop:{a:loopA,b:loopB,on:loopOn},pps,
   master:{vol:M.vol,fx:M.fx.map(fxMeta)},
   tracks:tracks.map(t=>({name:t.name,vol:t.vol,pan:t.pan,mute:t.mute,solo:t.solo,arm:t.arm,fx:t.fx.map(fxMeta),
-    clips:t.clips.map(c=>({b:bidOf(c.buf),s:+c.start.toFixed(4),o:+c.off.toFixed(4),d:+c.dur.toFixed(4)}))}))});
+    clips:t.clips.map(c=>({b:bidOf(c.buf),s:+c.start.toFixed(4),o:+c.off.toFixed(4),d:+c.dur.toFixed(4),fi:+(c.fi||0).toFixed(4),fo:+(c.fo||0).toFixed(4)}))}))});
 async function saveProject(force){
   if(recording||saving)return;const meta=JSON.stringify(getMeta());if(!force&&meta===lastMeta)return;
   saving=true;
@@ -540,7 +572,7 @@ async function saveProject(force){
 async function loadProject(){
   try{
     const m=JSON.parse(await dbGet('meta')||'null');if(!m)return false;
-    $('#bpm').value=m.bpm||120;metro=!!m.metro;$('#snap').classList.toggle('on',m.snap!==false);
+    $('#bpm').value=m.bpm||120;metro=!!m.metro;$('#cnt').classList.toggle('on',!!m.cnt);$('#snap').classList.toggle('on',m.snap!==false);
     loopA=m.loop?.a||0;loopB=m.loop?.b||0;loopOn=!!m.loop?.on;pps=m.pps||60;
     M.vol=m.master.vol;M.outN.gain.value=M.vol;M.fx=m.master.fx.map(f=>({...f}));rebuild(M);
     const cache=new Map();
@@ -548,7 +580,7 @@ async function loadProject(){
       const t=mkTrack(tm.name,{vol:tm.vol,pan:tm.pan,mute:tm.mute,solo:tm.solo,arm:tm.arm,fx:tm.fx.map(f=>({...f}))});
       for(const cm of tm.clips){let b=cache.get(cm.b);
         if(!b){const r=await dbGet('b:'+cm.b);if(!r)continue;b=ac.createBuffer(r.ch.length,r.ch[0].length,r.sr);r.ch.forEach((d,i)=>b.copyToChannel(d,i));b._bid=cm.b;cache.set(cm.b,b);stored.add(cm.b)}
-        t.clips.push({id:++cid,buf:b,start:cm.s,off:cm.o,dur:cm.d})}}
+        t.clips.push({id:++cid,buf:b,start:cm.s,off:cm.o,dur:cm.d,fi:cm.fi||0,fo:cm.fo||0})}}
     mix();selected=tracks[0]||M;lastMeta=JSON.stringify(getMeta());return tracks.length>0;
   }catch(e){return false}
 }
