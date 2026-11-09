@@ -11,9 +11,13 @@ const PL={
    lo.type='lowshelf';lo.frequency.value=200;mi.type='peaking';mi.frequency.value=1200;mi.Q.value=.9;hi.type='highshelf';hi.frequency.value=5000;
    lo.connect(mi);mi.connect(hi);const m={low:lo,mid:mi,high:hi};
    return{in:lo,out:hi,set:(k,v)=>m[k].gain.value=v}}},
- comp:{name:'compressor',params:[P('threshold','limiar',-60,0,-20,1,'dB'),P('ratio','razão',1,20,4,.5,':1'),P('attack','ataque',1,100,10,1,'ms'),P('release','release',20,1000,200,10,'ms'),P('makeup','ganho',0,24,3,.5,'dB')],
-  make(c){const k=c.createDynamicsCompressor(),g=c.createGain();k.knee.value=6;k.connect(g);
-   return{in:k,out:g,set:(p,v)=>{if(p==='threshold')k.threshold.value=v;if(p==='ratio')k.ratio.value=v;if(p==='attack')k.attack.value=v/1000;if(p==='release')k.release.value=v/1000;if(p==='makeup')g.gain.value=db(v)}}}},
+ comp:{name:'compressor',editor:(f,o)=>openComp(f,o),
+  params:[P('threshold','limiar',-60,0,-20,1,'dB'),P('ratio','razão',1,20,4,.5,':1'),P('attack','ataque',1,100,10,1,'ms'),P('release','release',20,1000,200,10,'ms'),P('knee','joelho',0,40,6,1,'dB'),P('makeup','ganho',0,24,3,.5,'dB')],
+  make(c){
+   let n;try{n=new AudioWorkletNode(c,'pk-comp')}catch(e){const g=c.createGain();return{in:g,out:g,set(){},gr:0}}
+   const i=c.createGain();i.connect(n);let an=null;if(c===ac){an=c.createAnalyser();an.fftSize=1024;i.connect(an)}
+   const inst={in:i,out:n,an,gr:0,set:(k,v)=>{const q=n.parameters.get(k);if(q)q.value=v}};
+   n.port.onmessage=e=>{inst.gr=e.data};return inst}},
  reverb:{name:'reverb',params:[P('size','tamanho',.3,5,1.8,.1,'s'),P('mix','mix',0,1,.25,.01)],
   make(c){const i=c.createGain(),o=c.createGain(),d=c.createGain(),w=c.createGain(),cv=c.createConvolver();
    i.connect(d);d.connect(o);i.connect(cv);cv.connect(w);w.connect(o);
@@ -54,7 +58,34 @@ function gateWk(){
       return true}}
   registerProcessor('pk-gate',Gate);
 }
-const wkURL=URL.createObjectURL(new Blob(['('+gateWk.toString()+')()'],{type:'application/javascript'}));
+/* compressor feed-forward com joelho suave; detector de pico ligado em estéreo; informa a redução de ganho (dB) */
+function compWk(){
+  class Comp extends AudioWorkletProcessor{
+    static get parameterDescriptors(){return[
+      {name:'threshold',defaultValue:-20,minValue:-80,maxValue:0,automationRate:'k-rate'},
+      {name:'ratio',defaultValue:4,minValue:1,maxValue:40,automationRate:'k-rate'},
+      {name:'attack',defaultValue:10,minValue:.1,maxValue:500,automationRate:'k-rate'},
+      {name:'release',defaultValue:200,minValue:5,maxValue:3000,automationRate:'k-rate'},
+      {name:'knee',defaultValue:6,minValue:0,maxValue:60,automationRate:'k-rate'},
+      {name:'makeup',defaultValue:0,minValue:0,maxValue:36,automationRate:'k-rate'}]}
+    constructor(){super();this.gs=0;this.n=0;this.mn=0}
+    process(ins,outs,p){
+      const i=ins[0],o=outs[0];if(!i||!i.length)return true;
+      const T=p.threshold[0],R=p.ratio[0],W=p.knee[0],mk=p.makeup[0],len=i[0].length;
+      const ca=Math.exp(-1/(sampleRate*Math.max(p.attack[0],.1)/1000)),cr=Math.exp(-1/(sampleRate*Math.max(p.release[0],1)/1000));
+      for(let s=0;s<len;s++){
+        let pk=0;for(let c=0;c<i.length;c++){const a=Math.abs(i[c][s]);if(a>pk)pk=a}
+        const x=20*Math.log10(pk>1e-6?pk:1e-6);let y;
+        if(2*(x-T)<-W)y=x;else if(W>0&&2*Math.abs(x-T)<=W){const d=x-T+W/2;y=x+(1/R-1)*d*d/(2*W)}else y=T+(x-T)/R;
+        const gc=y-x;this.gs=gc<this.gs?ca*this.gs+(1-ca)*gc:cr*this.gs+(1-cr)*gc;
+        if(this.gs<this.mn)this.mn=this.gs;
+        const g=Math.pow(10,(this.gs+mk)/20);
+        for(let c=0;c<o.length;c++)o[c][s]=(i[c]||i[0])[s]*g}
+      this.n+=len;if(this.n>=2048){this.port.postMessage(this.mn);this.n=0;this.mn=this.gs}
+      return true}}
+  registerProcessor('pk-comp',Comp);
+}
+const wkURL=URL.createObjectURL(new Blob(['('+gateWk.toString()+')();('+compWk.toString()+')();'],{type:'application/javascript'}));
 async function ensureWorklets(c){try{await c.audioWorklet.addModule(wkURL);return true}catch(e){return false}}
 Object.assign(PL,{
  gate:{name:'noise gate',params:[P('thr','limiar',-90,0,-45,1,'dB'),P('att','ataque',.1,50,3,.1,'ms'),P('hold','hold',0,500,80,5,'ms'),P('rel','release',10,1000,150,5,'ms'),P('red','redução',0,90,60,1,'dB')],
@@ -90,7 +121,7 @@ Object.assign(PL,{
 function chain(c,fx,inN,outN,live){
   let prev=inN;const insts=[];
   fx.forEach(f=>{if(live)f.inst=null;if(f.bypass)return;if(f.type==='wam'&&c!==ac)return;const p=PL[f.type],i=p.make(c,f);
-    p.params.forEach(q=>i.set(q.k,f.p[q.k]));prev.connect(i.in);prev=i.out;insts.push(i);if(live)f.inst=i});
+    p.params.forEach(q=>{if(f.p[q.k]===undefined)f.p[q.k]=q.v;i.set(q.k,f.p[q.k])});prev.connect(i.in);prev=i.out;insts.push(i);if(live)f.inst=i});
   prev.connect(outN);return insts;
 }
 function rebuild(o){try{o.in.disconnect()}catch{}(o.insts||[]).forEach(i=>{try{i.out.disconnect()}catch{}i.stop&&i.stop()});o.insts=chain(ac,o.fx,o.in,o.outN,true)}

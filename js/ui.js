@@ -71,10 +71,11 @@ function renderFx(){
   o.fx.forEach((f,idx)=>{
     const p=PL[f.type],d=document.createElement('div');d.className='fx'+(f.bypass?' off':'');
     const isW=f.type==='wam';
-    d.innerHTML=`<div class="t"><b>${isW?(f.p.name||'WAM').replace(/</g,'&lt;'):p.name}</b>${isW&&f._wam?'<button data-b="gui">gui</button>':''}${p.custom?'<button data-b="edit">editar</button>':''}<button data-b="up">↑</button><button data-b="by" class="${f.bypass?'':'on'}">on</button><button data-b="rm">×</button></div>`+
+    d.innerHTML=`<div class="t"><b>${isW?(f.p.name||'WAM').replace(/</g,'&lt;'):p.name}</b>${isW&&f._wam?'<button data-b="gui">gui</button>':''}${p.custom||p.editor?'<button data-b="edit">editar</button>':''}<button data-b="up">↑</button><button data-b="by" class="${f.bypass?'':'on'}">on</button><button data-b="rm">×</button></div>`+
       p.params.map(q=>`<div class="pr"><span>${q.l}</span><input type="range" min="${q.min}" max="${q.max}" step="${q.s}" value="${f.p[q.k]}" data-k="${q.k}"><em>${fmtv(q,f.p[q.k])}</em></div>`).join('');
     d.querySelectorAll('input').forEach(i=>i.oninput=()=>{const q=p.params.find(x=>x.k===i.dataset.k);f.p[q.k]=+i.value;f.inst&&f.inst.set(q.k,+i.value);i.nextElementSibling.textContent=fmtv(q,+i.value)});
     const gb=d.querySelector('[data-b=gui]');if(gb)gb.onclick=()=>openGui(f);
+    if(p.editor){const eb=d.querySelector('[data-b=edit]');if(eb)eb.onclick=()=>p.editor(f,o)}
     if(p.custom){
       const cv=document.createElement('canvas');cv.width=520;cv.height=100;cv.title='clique para editar';
       cv.style.cssText='width:100%;height:50px;cursor:pointer;border-radius:6px;background:#0f0f12';cv.onclick=()=>openEq(f,o);
