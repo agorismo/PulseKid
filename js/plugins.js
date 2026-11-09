@@ -27,10 +27,6 @@ const PL={
      if(k==='size'||k==='damp'){st[k]=v;cv.buffer=reverbIR(c,st.size,st.damp)}
      if(k==='pre')pd.delayTime.value=v/1000;if(k==='lowcut')hp.frequency.value=v;
      if(k==='mix'){d.gain.value=Math.cos(v*Math.PI/2);w.gain.value=Math.sin(v*Math.PI/2)*1.3}}}}},
- delay:{name:'delay',params:[P('time','tempo',.02,1,.3,.01,'s'),P('fb','feedback',0,.9,.35,.01),P('mix','mix',0,1,.3,.01)],
-  make(c){const i=c.createGain(),o=c.createGain(),d=c.createGain(),w=c.createGain(),dl=c.createDelay(2),fb=c.createGain();
-   i.connect(d);d.connect(o);i.connect(dl);dl.connect(w);w.connect(o);dl.connect(fb);fb.connect(dl);
-   return{in:i,out:o,set:(k,v)=>{if(k==='time')dl.delayTime.value=v;if(k==='fb')fb.gain.value=v;if(k==='mix'){d.gain.value=1-v*.5;w.gain.value=v}}}}},
  drive:{name:'drive',params:[P('amount','drive',0,100,20,1),P('tone','tom',800,16000,8000,100,'hz'),P('level','nível',-18,6,-3,.5,'dB')],
   make(c){const ws=c.createWaveShaper(),lp=c.createBiquadFilter(),g=c.createGain();ws.oversample='4x';lp.type='lowpass';ws.connect(lp);lp.connect(g);
    return{in:ws,out:g,set:(k,v)=>{if(k==='amount'){const n=2048,cu=new Float32Array(n);for(let i=0;i<n;i++){const x=i*2/n-1;cu[i]=(1+v)*x/(1+v*Math.abs(x))}ws.curve=cu}
