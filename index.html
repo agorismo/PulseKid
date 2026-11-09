@@ -15,7 +15,13 @@ button,select{background:var(--panel);color:var(--tx);border:1px solid var(--lin
 button:hover,select:hover{border-color:#3a3a44}
 button.on{background:var(--tx);color:#000;border-color:var(--tx)}
 button.arm.on{background:var(--rec);border-color:var(--rec);color:#fff}
-#metro.on,#loop.on,#cnt.on{background:var(--amb);border-color:var(--amb);color:#000}
+#tnw{display:none;align-items:center;gap:10px}
+#tnn{min-width:34px;font-size:14px}
+.tnbar{position:relative;width:130px;height:8px;background:var(--line);border-radius:4px}
+.tnbar .mid{position:absolute;left:50%;top:-4px;bottom:-4px;width:1px;background:var(--mut)}
+#tnd{position:absolute;top:-2px;width:6px;height:12px;border-radius:3px;margin-left:-3px;left:50%;background:var(--amb);opacity:.2;transition:left .05s}
+#tnc{min-width:44px;color:var(--mut)}
+#tn.on,#metro.on,#loop.on,#cnt.on{background:var(--amb);border-color:var(--amb);color:#000}
 #rc{color:var(--rec)}#rc.on{background:var(--rec);color:#fff;border-color:var(--rec);animation:p 1s infinite}
 @keyframes p{50%{opacity:.55}}
 .grp{display:flex;align-items:center;gap:6px;color:var(--mut)}
@@ -97,6 +103,9 @@ h2{font-size:10px;color:var(--mut);font-weight:400;text-transform:uppercase;lett
   <button id="dup" title="duplicar clipe (Ctrl+D)">duplicar</button>
   <button id="del" title="apagar clipe (Delete)">apagar</button>
   <button id="tune" title="afinar o clipe selecionado (correção de pitch)">afinar</button>
+  <span class="vr"></span>
+  <button id="tn" title="medidor de afinação ao vivo (usa o microfone)">medidor</button>
+  <div id="tnw"><b id="tnn">–</b><div class="tnbar"><i class="mid"></i><i id="tnd"></i></div><span id="tnc"></span></div>
   <div class="sp"></div>
   <span id="sv" style="color:var(--mut)"></span>
   <button id="new">novo</button><button id="save" title="Ctrl+S">salvar</button>
@@ -695,6 +704,35 @@ function runTune(c){
   w.postMessage({ch:chs,sr,key:+$('#tk').value,scale:$('#ts').value,strength:+$('#tst').value/100,speed:+$('#tsp').value},chs.map(a=>a.buffer));
 }
 $('#tune').onclick=openTune;
+
+/* ---------- medidor de afinação ao vivo (YIN no microfone) ---------- */
+function detectPitch(x,sr){
+  const n=x.length;let e=0;for(let i=0;i<n;i++)e+=x[i]*x[i];if(Math.sqrt(e/n)<.01)return 0;
+  const tmax=Math.min(Math.floor(sr/70),(n>>1)-1),tmin=Math.max(2,Math.floor(sr/1400)),W=n-tmax-1,d=new Float32Array(tmax+2);let run=0;d[0]=1;
+  for(let t=1;t<=tmax;t++){let s=0;for(let j=0;j<W;j++){const df=x[j]-x[j+t];s+=df*df}run+=s;d[t]=run>0?s*t/run:1}
+  let tau=-1;for(let t=tmin;t<tmax;t++){if(d[t]<.15){while(t+1<tmax&&d[t+1]<d[t])t++;tau=t;break}}
+  if(tau<0)return 0;
+  const a=d[tau-1],b=d[tau],c=d[tau+1],den=2*(a-2*b+c);return sr/(den!==0?tau+(a-c)/den:tau);
+}
+let tnOn=false,tnAn=null,tnSrc=null,tnT=null,tnM=0,tnHold=0;const tnBuf=new Float32Array(2048);
+async function toggleTuner(){
+  if(tnOn){tnOn=false;clearInterval(tnT);try{tnSrc&&tnSrc.disconnect(tnAn)}catch{}tnSrc=null;$('#tnw').style.display='none';$('#tn').classList.remove('on');return}
+  try{await ac.resume();await setupMic()}catch(e){return toast('permita o microfone')}
+  tnOn=true;$('#tn').classList.add('on');$('#tnw').style.display='flex';
+  tnAn=tnAn||ac.createAnalyser();tnAn.fftSize=2048;tnT=setInterval(tunerTick,50);
+}
+function tunerTick(){
+  if(tnSrc!==micSrc){try{tnSrc&&tnSrc.disconnect(tnAn)}catch{}tnSrc=micSrc;if(micSrc)micSrc.connect(tnAn)}
+  tnAn.getFloatTimeDomainData(tnBuf);const f=detectPitch(tnBuf,ac.sampleRate);
+  if(f>0){const m=69+12*Math.log2(f/440);tnM=tnM&&Math.abs(m-tnM)<1.5?tnM*.6+m*.4:m;tnHold=6}
+  else if(tnHold>0)tnHold--;else tnM=0;
+  const nn=$('#tnn'),cs=$('#tnc'),nd=$('#tnd');
+  if(!tnM){nn.textContent='–';cs.textContent='';nd.style.opacity=.2;return}
+  const r=Math.round(tnM),cents=Math.round((tnM-r)*100);
+  nn.textContent=NOTE_NAMES[((r%12)+12)%12]+(Math.floor(r/12)-1);cs.textContent=(cents>0?'+':'')+cents+'¢';
+  nd.style.opacity=1;nd.style.left=(50+cents)+'%';nd.style.background=Math.abs(cents)<=10?'#3ddc97':'var(--amb)';
+}
+$('#tn').onclick=toggleTuner;
 
 /* ---------- misc ---------- */
 $('#zi').onclick=()=>{pps=Math.min(240,pps*1.5);render()};$('#zo').onclick=()=>{pps=Math.max(15,pps/1.5);render()};
