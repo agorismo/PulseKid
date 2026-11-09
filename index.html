@@ -38,10 +38,10 @@ input[type=number]{width:54px;text-align:center}
 .head .r1 button{padding:3px 8px}.head .r2 button{padding:3px 8px;font-size:11px}
 .head input.nm{flex:1;min-width:0;padding:3px 6px}
 .r3 span{color:var(--mut);font-size:10px}
-.lane{position:relative;height:88px;flex-shrink:0}
+.lane{position:relative;height:var(--th,88px);flex-shrink:0}
 .ruler .lane{height:24px;cursor:pointer}.ruler .head{height:24px;padding:0}
 .tick{position:absolute;top:6px;color:var(--mut);font-size:10px;padding-left:4px;border-left:1px solid var(--line);height:18px;pointer-events:none}
-.clip{position:absolute;top:10px;height:68px;border-radius:5px;background:rgba(255,143,163,.1);border:1px solid rgba(255,143,163,.35);overflow:hidden;cursor:grab;touch-action:none}
+.clip{position:absolute;top:10px;height:calc(var(--th,88px) - 20px);border-radius:5px;background:rgba(255,143,163,.1);border:1px solid rgba(255,143,163,.35);overflow:hidden;cursor:grab;touch-action:none}
 .clip canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .clip.sel{border-color:#fff;background:rgba(255,255,255,.12)}
 .fz{position:absolute;top:0;bottom:0;background:rgba(0,0,0,.5);pointer-events:none}
@@ -49,7 +49,7 @@ input[type=number]{width:54px;text-align:center}
 .fh{position:absolute;top:2px;width:10px;height:10px;border-radius:50%;background:#fff;opacity:.5;z-index:2;cursor:ew-resize;margin-left:-1px}
 .fh.fo{margin-left:0;margin-right:-1px}.fh:hover{opacity:1}
 .h{position:absolute;top:0;bottom:0;width:7px;cursor:ew-resize;z-index:1}.h.l{left:0}.h.r{right:0}
-.prev{position:absolute;top:10px;height:68px;border-radius:5px;background:rgba(255,59,87,.2);border:1px solid var(--rec);pointer-events:none}
+.prev{position:absolute;top:10px;height:calc(var(--th,88px) - 20px);border-radius:5px;background:rgba(255,59,87,.2);border:1px solid var(--rec);pointer-events:none}
 .lp{position:absolute;pointer-events:none}
 .lp.shade{top:24px;bottom:0;z-index:1;background:rgba(255,183,3,.05);border-left:1px solid rgba(255,183,3,.35);border-right:1px solid rgba(255,183,3,.35)}
 .lp.rb{top:0;height:5px;background:var(--amb);opacity:.35}
@@ -79,6 +79,7 @@ h2{font-size:10px;color:var(--mut);font-weight:400;text-transform:uppercase;lett
   <div class="grp">entrada <select id="dev"><option value="">padrão</option></select><div class="meter"><div id="mm"></div></div></div>
   <div class="grp">latência <input id="lat" type="number" value="0" step="5">ms</div>
   <div class="grp"><button id="zo">−</button><button id="zi">+</button></div>
+  <div class="grp" title="altura das trilhas"><button id="hvo">↕−</button><button id="hvi">↕+</button></div>
   <div class="sp"></div>
   <div class="grp">saída <div class="meter"><div id="om"></div></div></div>
   <button id="imp">importar</button><button id="add">+ trilha</button><button id="exp">exportar wav</button>
@@ -116,7 +117,7 @@ h2{font-size:10px;color:var(--mut);font-weight:400;text-transform:uppercase;lett
 <script>
 const $=(s,e=document)=>e.querySelector(s);
 const ac=new (window.AudioContext||window.webkitAudioContext)({latencyHint:'interactive'});
-let pps=60,D=30,uid=0,cid=0,selected=null,selClip=null,playing=false,t0=0,pos0=0,srcs=[],recording=false,rec=null;
+let th=88,pps=60,D=30,uid=0,cid=0,selected=null,selClip=null,playing=false,t0=0,pos0=0,srcs=[],recording=false,rec=null;
 let micStream,micSrc,micAn,worklet,chunks=[];
 let loopOn=false,loopA=0,loopB=0,metro=false,nextBeat=0,lapPending=false,counting=false,countOsc=[];
 const tracks=[];
@@ -223,7 +224,8 @@ M.in=ac.createGain();M.outN=ac.createGain();M.outN.gain.value=M.vol;
 const an=ac.createAnalyser();an.fftSize=1024;M.outN.connect(an);an.connect(ac.destination);rebuild(M);
 function mix(){const any=tracks.some(t=>t.solo);tracks.forEach(t=>{t.gainN.gain.value=(t.mute||(any&&!t.solo))?0:t.vol;t.panN.pan.value=t.pan})}
 function mkTrack(name,extra={}){
-  const t={id:++uid,name:name||'trilha '+(tracks.length+1),vol:.8,pan:0,mute:false,solo:false,arm:false,mon:false,fx:[],clips:[],...extra};
+  const t={id:++uid,name:name||'trilha '+(tracks.length+1),vol:.8,pan:0,mute:false,solo:false,arm:false,mon:false,fx:[],takes:[[]],ti:0,...extra};
+  Object.defineProperty(t,'clips',{get(){return t.takes[t.ti]},set(v){t.takes[t.ti]=v}});
   t.in=ac.createGain();t.gainN=ac.createGain();t.panN=ac.createStereoPanner();t.outN=t.gainN;
   t.gainN.connect(t.panN);t.panN.connect(M.in);rebuild(t);tracks.push(t);return t;
 }
@@ -328,15 +330,17 @@ function stopRec(){
     let data=new Float32Array(len),o=0;chunks.forEach(c=>{data.set(c,o);o+=c.length});chunks=[];
     let start=rec.start;if(start<0){const cut=Math.min(len-1,Math.round(-start*ac.sampleRate));data=data.subarray(cut);start=0}
     const b=ac.createBuffer(1,data.length,ac.sampleRate);b.copyToChannel(data,0);
-    pushUndo();selClip=addClip(rec.t,b,start);pos0=rec.from;render();ui();
+    pushUndo();const rt=rec.t,ce=start+b.duration;
+    if(rt.clips.some(c=>c.start<ce&&c.start+c.dur>start)){rt.takes.push([]);rt.ti=rt.takes.length-1;toast('take '+(rt.ti+1))}
+    selClip=addClip(rt,b,start);pos0=rec.from;render();ui();
   },80);
 }
 $('#rc').onclick=()=>recording?stopRec():counting?cancelCount():startRec();
 
 /* ---------- edição de clipes ---------- */
 let undoS=[],redoS=[];
-const snapState=()=>tracks.map(t=>[t,t.clips.map(c=>({...c}))]);
-function restore(s){s.forEach(([t,cl])=>{if(tracks.includes(t))t.clips=cl.map(c=>({...c}))})}
+const snapState=()=>tracks.map(t=>[t,t.takes.map(a=>a.map(c=>({...c}))),t.ti]);
+function restore(s){s.forEach(([t,tk,ti])=>{if(tracks.includes(t)){t.takes=tk.map(a=>a.map(c=>({...c})));t.ti=ti}})}
 function pushUndo(){undoS.push(snapState());if(undoS.length>60)undoS.shift();redoS=[]}
 function undo(){if(!undoS.length)return;redoS.push(snapState());restore(undoS.pop());selClip=null;render();refreshPlay()}
 function redo(){if(!redoS.length)return;undoS.push(snapState());restore(redoS.pop());selClip=null;render();refreshPlay()}
@@ -402,7 +406,7 @@ function render(){
     const r=document.createElement('div');r.className='row'+(t===selected?' sel':'');r.dataset.id=t.master?'m':t.id;
     if(t.master){r.innerHTML=`<div class="head"><div class="r1"><b style="flex:1">master</b></div><div class="r3"><span>vol</span><input type="range" min="0" max="1.2" step=".01" value="${t.vol}" data-a="vol"></div></div><div class="lane" style="width:${D*pps}px;height:60px"></div>`}
     else r.innerHTML=`<div class="head">
-      <div class="r1"><input class="nm" value="${t.name.replace(/"/g,'&quot;')}"><button data-a="del">×</button></div>
+      <div class="r1"><input class="nm" value="${t.name.replace(/"/g,'&quot;')}">${t.takes.length>1?`<button data-a="tk" title="trocar de take · shift+clique apaga o take atual">t${t.ti+1}/${t.takes.length}</button>`:''}<button data-a="del">×</button></div>
       <div class="r2"><button class="arm ${t.arm?'on':''}" data-a="arm">R</button><button class="${t.mon?'on':''}" data-a="mon" title="monitorar entrada (use fones)">in</button><button class="${t.mute?'on':''}" data-a="mute">M</button><button class="${t.solo?'on':''}" data-a="solo">S</button></div>
       <div class="r3"><span>vol</span><input type="range" min="0" max="1.2" step=".01" value="${t.vol}" data-a="vol"><span>pan</span><input type="range" min="-1" max="1" step=".01" value="${t.pan}" data-a="pan"></div></div>
       <div class="lane" id="lane${t.id}" style="width:${D*pps}px"></div>`;
@@ -423,6 +427,8 @@ function render(){
         if(a==='solo'){t.solo=!t.solo;el.classList.toggle('on');mix()}
         if(a==='mon'){t.mon=!t.mon;el.classList.toggle('on');updateMon()}
         if(a==='arm'){const v=!t.arm;tracks.forEach(x=>x.arm=false);t.arm=v;render();if(v)setupMic().then(updateMon).catch(()=>toast('permita o microfone'))}
+        if(a==='tk'){if(e.shiftKey){if(!confirm('Apagar este take?'))return;pushUndo();t.takes.splice(t.ti,1);t.ti=Math.max(0,t.ti-1)}else{pushUndo();t.ti=(t.ti+1)%t.takes.length}
+          selClip=null;render();refreshPlay();return}
         if(a==='del'){if(playing)pause();try{t.panN.disconnect();t.in.disconnect()}catch{}tracks.splice(tracks.indexOf(t),1);if(selected===t)selected=M;if(selClip&&!ownerOf(selClip))selClip=null;render();renderFx()}
       }});
     const nm=$('.nm',r);if(nm)nm.oninput=()=>t.name=nm.value;
@@ -440,7 +446,7 @@ function drawLoop(){
   const rb=document.createElement('div');rb.className='lp rb'+cls;rb.style.left=loopA*pps+'px';rb.style.width=(loopB-loopA)*pps+'px';const rl=$('.ruler .lane');if(rl)rl.appendChild(rb);
 }
 function drawWave(cv,c){
-  const b=c.buf,sr=b.sampleRate,w=cv.width=Math.max(1,Math.min(8192,Math.ceil(c.dur*pps))),h=cv.height=66,x=cv.getContext('2d'),d=b.getChannelData(0),s0=Math.floor(c.off*sr),n=Math.floor(c.dur*sr),sp=n/w,st=Math.max(1,Math.floor(sp/40));
+  const b=c.buf,sr=b.sampleRate,w=cv.width=Math.max(1,Math.min(8192,Math.ceil(c.dur*pps))),h=cv.height=Math.max(20,th-22),x=cv.getContext('2d'),d=b.getChannelData(0),s0=Math.floor(c.off*sr),n=Math.floor(c.dur*sr),sp=n/w,st=Math.max(1,Math.floor(sp/40));
   x.strokeStyle='#ff8fa3';x.beginPath();
   for(let i=0;i<w;i++){let mn=0,mx=0;for(let j=s0+Math.floor(i*sp),e=Math.min(d.length,s0+Math.floor((i+1)*sp));j<e;j+=st){const v=d[j];if(v<mn)mn=v;if(v>mx)mx=v}
     x.moveTo(i+.5,h/2+mn*h/2-.5);x.lineTo(i+.5,h/2+mx*h/2+.5)}
@@ -482,7 +488,8 @@ async function loadWam(f){
   const host=await getHost().catch(()=>null);
   const mod=await import(f.p.url),F=mod.default||mod;let inst;
   try{inst=host!==null?await F.createInstance(host,ac,{}):await F.createInstance(ac,{})}catch(e){inst=await F.createInstance(ac,{})}
-  f._wam=inst;const d=F.descriptor||inst.descriptor||{};
+  f._wam=inst;if(f.state&&inst.setState){try{await inst.setState(f.state)}catch{}}
+  const d=F.descriptor||inst.descriptor||{};
   f.p.name=d.name||(f.p.name&&f.p.name!=='carregando…'?f.p.name:(f.p.url.split('/').slice(-2)[0]||'plugin'));
   if(f._owner)rebuild(f._owner);renderFx();
 }
@@ -551,17 +558,20 @@ const idb=new Promise((res,rej)=>{const r=indexedDB.open('pulsekid',1);r.onupgra
 const idbp=async(mode,fn)=>{const d=await idb;return new Promise((res,rej)=>{const tx=d.transaction('s',mode);const q=fn(tx.objectStore('s'));tx.oncomplete=()=>res(q&&q.result);tx.onerror=()=>rej(tx.error)})};
 const dbGet=k=>idbp('readonly',s=>s.get(k)),dbPut=(k,v)=>idbp('readwrite',s=>s.put(v,k)),dbDel=k=>idbp('readwrite',s=>s.delete(k)),dbKeys=()=>idbp('readonly',s=>s.getAllKeys()),dbClear=()=>idbp('readwrite',s=>s.clear());
 const stored=new Set();let lastMeta='',saving=false;
-const fxMeta=f=>({type:f.type,p:f.p,bypass:f.bypass});
-const getMeta=()=>({v:1,bpm:+$('#bpm').value||120,metro,cnt:cntOn(),snap:snapOn(),loop:{a:loopA,b:loopB,on:loopOn},pps,
+const fxMeta=f=>({type:f.type,p:f.p,bypass:f.bypass,state:f.state});
+async function refreshWam(){
+  for(const o of [...tracks,M])for(const f of o.fx)if(f.type==='wam'&&f._wam&&f._wam.getState){try{const s=await f._wam.getState();JSON.stringify(s);f.state=s}catch{}}
+}
+const getMeta=()=>({v:1,bpm:+$('#bpm').value||120,metro,cnt:cntOn(),snap:snapOn(),loop:{a:loopA,b:loopB,on:loopOn},pps,th,
   master:{vol:M.vol,fx:M.fx.map(fxMeta)},
   tracks:tracks.map(t=>({name:t.name,vol:t.vol,pan:t.pan,mute:t.mute,solo:t.solo,arm:t.arm,fx:t.fx.map(fxMeta),
-    clips:t.clips.map(c=>({b:bidOf(c.buf),s:+c.start.toFixed(4),o:+c.off.toFixed(4),d:+c.dur.toFixed(4),fi:+(c.fi||0).toFixed(4),fo:+(c.fo||0).toFixed(4)}))}))});
+    ti:t.ti,takes:t.takes.map(a=>a.map(c=>({b:bidOf(c.buf),s:+c.start.toFixed(4),o:+c.off.toFixed(4),d:+c.dur.toFixed(4),fi:+(c.fi||0).toFixed(4),fo:+(c.fo||0).toFixed(4)})))}))});
 async function saveProject(force){
-  if(recording||saving)return;const meta=JSON.stringify(getMeta());if(!force&&meta===lastMeta)return;
+  if(recording||saving)return;await refreshWam();const meta=JSON.stringify(getMeta());if(!force&&meta===lastMeta)return;
   saving=true;
   try{
     const used=new Set();
-    for(const t of tracks)for(const c of t.clips){const id=bidOf(c.buf);used.add(id);
+    for(const t of tracks)for(const c of t.takes.flat()){const id=bidOf(c.buf);used.add(id);
       if(!stored.has(id)){await dbPut('b:'+id,{sr:c.buf.sampleRate,ch:Array.from({length:c.buf.numberOfChannels},(_,i)=>c.buf.getChannelData(i).slice())});stored.add(id)}}
     await dbPut('meta',meta);lastMeta=meta;
     for(const k of await dbKeys())if(typeof k==='string'&&k.startsWith('b:')&&!used.has(k.slice(2))){await dbDel(k);stored.delete(k.slice(2))}
@@ -573,14 +583,16 @@ async function loadProject(){
   try{
     const m=JSON.parse(await dbGet('meta')||'null');if(!m)return false;
     $('#bpm').value=m.bpm||120;metro=!!m.metro;$('#cnt').classList.toggle('on',!!m.cnt);$('#snap').classList.toggle('on',m.snap!==false);
-    loopA=m.loop?.a||0;loopB=m.loop?.b||0;loopOn=!!m.loop?.on;pps=m.pps||60;
+    loopA=m.loop?.a||0;loopB=m.loop?.b||0;loopOn=!!m.loop?.on;pps=m.pps||60;th=m.th||88;applyTh();
     M.vol=m.master.vol;M.outN.gain.value=M.vol;M.fx=m.master.fx.map(f=>({...f}));rebuild(M);
     const cache=new Map();
     for(const tm of m.tracks){
       const t=mkTrack(tm.name,{vol:tm.vol,pan:tm.pan,mute:tm.mute,solo:tm.solo,arm:tm.arm,fx:tm.fx.map(f=>({...f}))});
-      for(const cm of tm.clips){let b=cache.get(cm.b);
+      t.takes=[];for(const arr of (tm.takes||[tm.clips||[]])){const tk=[];t.takes.push(tk);
+      for(const cm of arr){let b=cache.get(cm.b);
         if(!b){const r=await dbGet('b:'+cm.b);if(!r)continue;b=ac.createBuffer(r.ch.length,r.ch[0].length,r.sr);r.ch.forEach((d,i)=>b.copyToChannel(d,i));b._bid=cm.b;cache.set(cm.b,b);stored.add(cm.b)}
-        t.clips.push({id:++cid,buf:b,start:cm.s,off:cm.o,dur:cm.d,fi:cm.fi||0,fo:cm.fo||0})}}
+        tk.push({id:++cid,buf:b,start:cm.s,off:cm.o,dur:cm.d,fi:cm.fi||0,fo:cm.fo||0})}}
+      t.ti=Math.min(tm.ti||0,t.takes.length-1)}
     mix();selected=tracks[0]||M;lastMeta=JSON.stringify(getMeta());return tracks.length>0;
   }catch(e){return false}
 }
@@ -686,6 +698,9 @@ $('#tune').onclick=openTune;
 
 /* ---------- misc ---------- */
 $('#zi').onclick=()=>{pps=Math.min(240,pps*1.5);render()};$('#zo').onclick=()=>{pps=Math.max(15,pps/1.5);render()};
+const applyTh=()=>document.documentElement.style.setProperty('--th',th+'px');
+$('#hvi').onclick=()=>{th=Math.min(300,Math.round(th*1.3));applyTh();render()};
+$('#hvo').onclick=()=>{th=Math.max(88,Math.round(th/1.3));applyTh();render()};
 let tt;function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('s');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('s'),2200)}
 document.addEventListener('click',e=>{if(e.target.tagName==='BUTTON')e.target.blur()});
 addEventListener('keydown',e=>{
