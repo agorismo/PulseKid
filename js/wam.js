@@ -42,4 +42,4 @@ $('#wamadd').onclick=()=>{
   loadWam(f).catch(e=>{toast('não consegui carregar esse plugin');const i=o.fx.indexOf(f);if(i>=0)o.fx.splice(i,1);rebuild(o);renderFx()});
   $('#wamurl').value='';
 };
-$('#pladd').onclick=()=>{const o=selected||M,k=$('#plsel').value,p={};PL[k].params.forEach(q=>p[q.k]=q.v);o.fx.push({type:k,p,bypass:false});rebuild(o);renderFx()};
+$('#pladd').onclick=()=>{const o=selected||M,k=$('#plsel').value,p={};PL[k].params.forEach(q=>p[q.k]=q.v);if(PL[k].init)Object.assign(p,PL[k].init());o.fx.push({type:k,p,bypass:false});rebuild(o);renderFx()};

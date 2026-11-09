@@ -3,7 +3,7 @@
 DAW web minimalista focado em gravação e plugins. Arquivo único, sem dependências.
 
 - Gravação multitrack com overdub, monitor de entrada e compensação de latência
-- Rack de plugins por trilha e no master: EQ, compressor, reverb, delay, drive, chorus, filtro, phaser, flanger, tremolo, bitcrush, limiter, noise gate
+- Rack de plugins por trilha e no master: EQ visual (6 bandas com curva arrastável e espectro), EQ simples, compressor, reverb, delay, drive, chorus, filtro, phaser, flanger, tremolo, bitcrush, limiter, noise gate
 - Plugins de terceiros via WAM (Web Audio Modules): cole a URL do index.js do plugin (experimental)
 - Afinador (correção de pitch tipo auto-tune): selecione um clipe e clique em "afinar"; escolha tom, escala, força e velocidade
 - Medidor de afinação ao vivo: botão "medidor" mostra a nota e o desvio em centésimos de semitom enquanto você canta
@@ -23,7 +23,8 @@ Publicado via GitHub Pages: Settings → Pages → Deploy from branch → `main`
 index.html        estrutura da página
 css/style.css     visual
 js/core.js        estado global e AudioContext
-js/plugins.js     rack de plugins (EQ, compressor, reverb, delay, drive, chorus, filtro, phaser, flanger, tremolo, bitcrush, limiter, noise gate)
+js/plugins.js     rack de plugins (EQ simples, compressor, reverb, delay, drive, chorus, filtro, phaser, flanger, tremolo, bitcrush, limiter, noise gate)
+js/eq.js          EQ visual: 6 bandas paramétricas, curva editável e analisador de espectro
 js/audio.js       grafo de áudio, tempo/loop, transporte, metrônomo, gravação
 js/clips.js       edição de clipes, fades, takes, desfazer/refazer
 js/ui.js          renderização das trilhas e do painel de plugins

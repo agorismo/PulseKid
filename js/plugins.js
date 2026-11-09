@@ -6,7 +6,7 @@ function makeIR(c,sec){const n=Math.floor(c.sampleRate*sec),b=c.createBuffer(2,n
 const P=(k,l,min,max,v,s,u='',o=null)=>({k,l,min,max,v,s,u,o});
 const fmtv=(q,v)=>q.o?q.o[Math.round(v)]:(+v).toFixed(q.s<1?2:0)+q.u;
 const PL={
- eq:{name:'EQ',params:[P('low','graves',-15,15,0,.5,'dB'),P('mid','médios',-15,15,0,.5,'dB'),P('high','agudos',-15,15,0,.5,'dB')],
+ eq:{name:'EQ simples',params:[P('low','graves',-15,15,0,.5,'dB'),P('mid','médios',-15,15,0,.5,'dB'),P('high','agudos',-15,15,0,.5,'dB')],
   make(c){const lo=c.createBiquadFilter(),mi=c.createBiquadFilter(),hi=c.createBiquadFilter();
    lo.type='lowshelf';lo.frequency.value=200;mi.type='peaking';mi.frequency.value=1200;mi.Q.value=.9;hi.type='highshelf';hi.frequency.value=5000;
    lo.connect(mi);mi.connect(hi);const m={low:lo,mid:mi,high:hi};
