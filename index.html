@@ -62,6 +62,7 @@ h2{font-size:10px;color:var(--mut);font-weight:400;text-transform:uppercase;lett
 #modal{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:20}
 .mbox{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;max-width:92vw;max-height:90vh;overflow:auto;display:flex;flex-direction:column;gap:10px}
 .mt{display:flex;justify-content:space-between;align-items:center;gap:20px}
+.tune{display:flex;flex-direction:column;gap:10px;min-width:300px}
 #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--tx);color:#000;padding:8px 14px;border-radius:6px;opacity:0;transition:.2s;pointer-events:none;z-index:9}
 #toast.s{opacity:1}
 </style>
@@ -89,6 +90,7 @@ h2{font-size:10px;color:var(--mut);font-weight:400;text-transform:uppercase;lett
   <button id="split" title="cortar no cursor (S)">cortar</button>
   <button id="dup" title="duplicar clipe (Ctrl+D)">duplicar</button>
   <button id="del" title="apagar clipe (Delete)">apagar</button>
+  <button id="tune" title="afinar o clipe selecionado (correção de pitch)">afinar</button>
   <div class="sp"></div>
   <span id="sv" style="color:var(--mut)"></span>
   <button id="new">novo</button><button id="save" title="Ctrl+S">salvar</button>
@@ -147,7 +149,35 @@ const PL={
    dl.delayTime.value=.02;i.connect(d);d.connect(o);i.connect(dl);dl.connect(w);w.connect(o);l.connect(lg);lg.connect(dl.delayTime);l.start();
    return{in:i,out:o,stop:()=>{try{l.stop()}catch{}},set:(k,v)=>{if(k==='rate')l.frequency.value=v;if(k==='depth')lg.gain.value=v*.008;if(k==='mix'){d.gain.value=1-v*.5;w.gain.value=v}}}}}
 };
+/* worklet do noise gate: roda na thread de áudio, também funciona no export offline */
+function gateWk(){
+  class Gate extends AudioWorkletProcessor{
+    static get parameterDescriptors(){return[
+      {name:'thr',defaultValue:-45,minValue:-90,maxValue:0,automationRate:'k-rate'},
+      {name:'att',defaultValue:3,minValue:.1,maxValue:100,automationRate:'k-rate'},
+      {name:'hold',defaultValue:80,minValue:0,maxValue:1000,automationRate:'k-rate'},
+      {name:'rel',defaultValue:150,minValue:5,maxValue:2000,automationRate:'k-rate'},
+      {name:'red',defaultValue:60,minValue:0,maxValue:90,automationRate:'k-rate'}]}
+    constructor(){super();this.env=0;this.g=0;this.hc=0}
+    process(ins,outs,p){
+      const i=ins[0],o=outs[0];if(!i||!i.length)return true;
+      const thr=Math.pow(10,p.thr[0]/20),att=Math.exp(-1/(sampleRate*p.att[0]/1000)),rel=Math.exp(-1/(sampleRate*p.rel[0]/1000));
+      const hold=sampleRate*p.hold[0]/1000,floor=Math.pow(10,-p.red[0]/20),n=i[0].length;
+      for(let s=0;s<n;s++){
+        let pk=0;for(let c=0;c<i.length;c++){const a=Math.abs(i[c][s]);if(a>pk)pk=a}
+        this.env=Math.max(pk,this.env*.9992);
+        let tg;if(this.env>thr){this.hc=hold;tg=1}else if(this.hc>0){this.hc--;tg=1}else tg=floor;
+        this.g=tg+(this.g-tg)*(tg>this.g?att:rel);
+        for(let c=0;c<o.length;c++)o[c][s]=(i[c]||i[0])[s]*this.g}
+      return true}}
+  registerProcessor('pk-gate',Gate);
+}
+const wkURL=URL.createObjectURL(new Blob(['('+gateWk.toString()+')()'],{type:'application/javascript'}));
+async function ensureWorklets(c){try{await c.audioWorklet.addModule(wkURL);return true}catch(e){return false}}
 Object.assign(PL,{
+ gate:{name:'noise gate',params:[P('thr','limiar',-90,0,-45,1,'dB'),P('att','ataque',.1,50,3,.1,'ms'),P('hold','hold',0,500,80,5,'ms'),P('rel','release',10,1000,150,5,'ms'),P('red','redução',0,90,60,1,'dB')],
+  make(c){let n;try{n=new AudioWorkletNode(c,'pk-gate')}catch(e){const g=c.createGain();return{in:g,out:g,set(){}}}
+   return{in:n,out:n,set:(k,v)=>{const q=n.parameters.get(k);if(q)q.value=v}}}},
  filter:{name:'filtro',params:[P('type','tipo',0,2,0,1,'',['passa-baixa','passa-alta','passa-banda']),P('freq','freq',40,16000,2000,10,'hz'),P('res','res',.1,20,1,.1)],
   make(c){const f=c.createBiquadFilter(),T=['lowpass','highpass','bandpass'];
    return{in:f,out:f,set:(k,v)=>{if(k==='type')f.type=T[Math.round(v)];if(k==='freq')f.frequency.value=v;if(k==='res')f.Q.value=v}}}},
@@ -470,6 +500,7 @@ $('#add').onclick=()=>addTrack();
 async function exportWav(){
   const end=Math.max(0,...tracks.flatMap(t=>t.clips.map(c=>c.start+c.dur)));if(!end)return toast('nada para exportar');
   toast('renderizando...');const sr=ac.sampleRate,off=new OfflineAudioContext(2,Math.ceil((end+2)*sr),sr);
+  await ensureWorklets(off);
   const mi=off.createGain(),mo=off.createGain();mo.gain.value=M.vol;chain(off,M.fx,mi,mo,false);mo.connect(off.destination);
   const any=tracks.some(t=>t.solo);
   tracks.forEach(t=>{if(!t.clips.length||t.mute||(any&&!t.solo))return;const i=off.createGain(),g=off.createGain(),pn=off.createStereoPanner();
@@ -533,6 +564,94 @@ $('#new').onclick=newProject;
 setInterval(()=>saveProject(),3000);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)saveProject()});
 
+/* ---------- afinador: correção de pitch offline (Web Worker) ---------- */
+function tuneWorker(){
+  self.onmessage=e=>{const r=tune(e.data);self.postMessage({ch:r},r.map(a=>a.buffer))};
+  function tune({ch,sr,key,scale,strength,speed}){
+    const n=ch[0].length,nc=ch.length,mono=new Float32Array(n);
+    for(let c=0;c<nc;c++){const d=ch[c];for(let i=0;i<n;i++)mono[i]+=d[i]/nc}
+    const ds=Math.max(1,Math.round(sr/11025)),srd=sr/ds,nd=Math.floor(n/ds),xd=new Float32Array(nd);
+    for(let i=0;i<nd;i++){let s=0;for(let j=0;j<ds;j++)s+=mono[i*ds+j];xd[i]=s/ds}
+    const W=Math.round(srd*.035),tmin=Math.max(2,Math.floor(srd/800)),tmax=Math.min(Math.floor(srd/70),W),hop=Math.max(16,Math.round(srd*.006));
+    const nf=Math.max(0,Math.floor((nd-W-tmax)/hop)+1),f0=new Float32Array(nf),d=new Float32Array(tmax+2);
+    // 1) detecção de pitch (YIN)
+    for(let k=0;k<nf;k++){
+      const o=k*hop;let e=0;for(let j=0;j<W;j++)e+=xd[o+j]*xd[o+j];
+      if(Math.sqrt(e/W)<.008)continue;
+      let run=0;d[0]=1;
+      for(let t=1;t<=tmax;t++){let s=0;for(let j=0;j<W;j++){const df=xd[o+j]-xd[o+j+t];s+=df*df}run+=s;d[t]=run>0?s*t/run:1}
+      let tau=-1;
+      for(let t=tmin;t<tmax;t++){if(d[t]<.15){while(t+1<tmax&&d[t+1]<d[t])t++;tau=t;break}}
+      if(tau<0)continue;
+      const a=d[tau-1],b=d[tau],c=d[tau+1],den=2*(a-2*b+c);
+      f0[k]=srd/(den!==0?tau+(a-c)/den:tau);
+      if(k%400===0)self.postMessage({p:k/nf*.3});
+    }
+    // 2) mediana em notas MIDI e flag de voz
+    const m=new Float32Array(nf),ms=new Float32Array(nf),vo=new Uint8Array(nf);
+    for(let k=0;k<nf;k++)m[k]=f0[k]>0?69+12*Math.log2(f0[k]/440):0;
+    for(let k=0;k<nf;k++){const arr=[];for(let j=k-2;j<=k+2;j++)if(j>=0&&j<nf&&m[j]>0)arr.push(m[j]);
+      if(m[k]>0&&arr.length>=3){arr.sort((x,y)=>x-y);ms[k]=arr[arr.length>>1];vo[k]=1}}
+    // 3) nota alvo na escala + suavização (velocidade)
+    const P={chromatic:[0,1,2,3,4,5,6,7,8,9,10,11],major:[0,2,4,5,7,9,11],minor:[0,2,3,5,7,8,10],pmaj:[0,2,4,7,9],pmin:[0,3,5,7,10]};
+    const ok=new Uint8Array(12);(P[scale]||P.chromatic).forEach(p=>ok[(p+key)%12]=1);
+    const near=x=>{const r=Math.round(x);let best=r,bd=1e9;for(let c=r-6;c<=r+6;c++){if(!ok[((c%12)+12)%12])continue;const dd=Math.abs(c-x);if(dd<bd){bd=dd;best=c}}return best};
+    const sh=new Float32Array(nf),a=speed<=0?1:1-Math.exp(-(hop*ds/sr*1000)/speed);let cur=0,pv=false;
+    for(let k=0;k<nf;k++){
+      if(!vo[k]){pv=false;continue}
+      const tgt=Math.max(-4,Math.min(4,(near(ms[k])-ms[k])*strength));
+      if(!pv)cur=tgt;else cur+=(tgt-cur)*a;pv=true;sh[k]=cur;
+    }
+    // 4) PSOLA: marcas de pitch + overlap-add com janelas de 2 períodos
+    const fr=t=>{const k=Math.round((t/ds-W/2)/hop);return k<0?0:k>=nf?nf-1:k};
+    const marks=[],Ta=[],Rr=[];let t=0;
+    while(t<n){
+      const k=nf?fr(t):0;let T,r=1,v=nf&&vo[k];
+      if(v){T=sr/(440*Math.pow(2,(ms[k]-69)/12));r=Math.pow(2,sh[k]/12)}else T=sr*.005;
+      let p=Math.round(t);
+      if(v){const w=Math.floor(T*.3);let best=-1e9,bi=p;for(let j=-w;j<=w;j++){const q=p+j;if(q<0||q>=n)continue;if(mono[q]>best){best=mono[q];bi=q}}p=bi}
+      marks.push(p);Ta.push(T);Rr.push(r);t=p+T;
+    }
+    const out=ch.map(()=>new Float32Array(n));let ts=0,k=0,cnt=0;
+    while(ts<n&&marks.length){
+      while(k+1<marks.length&&Math.abs(marks[k+1]-ts)<=Math.abs(marks[k]-ts))k++;
+      const T=Ta[k],r=Rr[k],L=Math.max(2,Math.round(T)),p=marks[k],g=1/r,tsr=Math.round(ts);
+      for(let j=-L;j<=L;j++){const si=p+j,di=tsr+j;if(si<0||si>=n||di<0||di>=n)continue;const w=.5*(1+Math.cos(Math.PI*j/L))*g;for(let c=0;c<nc;c++)out[c][di]+=ch[c][si]*w}
+      ts+=T/r;if(++cnt%2000===0)self.postMessage({p:.3+.7*ts/n});
+    }
+    return out;
+  }
+}
+const NOTE_NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];let tuneURL=null;
+function openTune(){
+  if(!selClip)return toast('selecione um clipe para afinar');
+  const c=selClip;$('#mtitle').textContent='afinador';
+  $('#mbody').innerHTML=`<div class="tune">
+    <div class="pr"><span>tom</span><select id="tk">${NOTE_NAMES.map((n,i)=>`<option value="${i}">${n}</option>`).join('')}</select><em></em></div>
+    <div class="pr"><span>escala</span><select id="ts"><option value="chromatic">cromática</option><option value="major">maior</option><option value="minor">menor</option><option value="pmaj">pentatônica maior</option><option value="pmin">pentatônica menor</option></select><em></em></div>
+    <div class="pr"><span>força</span><input id="tst" type="range" min="0" max="100" value="100"><em id="tstv">100%</em></div>
+    <div class="pr"><span>veloc.</span><input id="tsp" type="range" min="0" max="400" value="30"><em id="tspv">30ms</em></div>
+    <div style="color:var(--mut);font-size:11px;max-width:320px">Funciona melhor com voz ou instrumento solo (uma nota por vez). Veloc. 0 = efeito "robô". Ctrl+Z desfaz.</div>
+    <button id="trun">afinar clipe</button><div id="tstat" style="color:var(--mut)"></div></div>`;
+  $('#tst').oninput=e=>$('#tstv').textContent=e.target.value+'%';$('#tsp').oninput=e=>$('#tspv').textContent=e.target.value+'ms';
+  $('#trun').onclick=()=>runTune(c);$('#modal').style.display='flex';
+}
+function runTune(c){
+  const b=c.buf,sr=b.sampleRate,s0=Math.floor(c.off*sr),s1=Math.min(b.length,Math.floor((c.off+c.dur)*sr));
+  const chs=Array.from({length:b.numberOfChannels},(_,i)=>b.getChannelData(i).slice(s0,s1));
+  tuneURL=tuneURL||URL.createObjectURL(new Blob(['('+tuneWorker.toString()+')()'],{type:'application/javascript'}));
+  const w=new Worker(tuneURL),st=$('#tstat');$('#trun').disabled=true;st.textContent='processando… 0%';
+  w.onmessage=e=>{
+    if(e.data.p!==undefined){st.textContent='processando… '+Math.round(e.data.p*100)+'%';return}
+    const out=e.data.ch,nb=ac.createBuffer(out.length,out[0].length,sr);out.forEach((d,i)=>nb.copyToChannel(d,i));w.terminate();
+    $('#mclose').click();if(!ownerOf(c))return;
+    pushUndo();c.buf=nb;c.off=0;c.dur=nb.duration;render();refreshPlay();toast('clipe afinado');
+  };
+  w.onerror=()=>{w.terminate();st.textContent='erro ao processar este clipe';$('#trun').disabled=false};
+  w.postMessage({ch:chs,sr,key:+$('#tk').value,scale:$('#ts').value,strength:+$('#tst').value/100,speed:+$('#tsp').value},chs.map(a=>a.buffer));
+}
+$('#tune').onclick=openTune;
+
 /* ---------- misc ---------- */
 $('#zi').onclick=()=>{pps=Math.min(240,pps*1.5);render()};$('#zo').onclick=()=>{pps=Math.max(15,pps/1.5);render()};
 let tt;function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('s');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('s'),2200)}
@@ -554,6 +673,7 @@ addEventListener('keydown',e=>{
   else if(e.code==='Home')seek(0);
 });
 (async()=>{
+  await ensureWorklets(ac);
   const ok=await loadProject();
   if(!ok){while(tracks.length){const t=tracks.pop();try{t.panN.disconnect();t.in.disconnect()}catch{}}const t=mkTrack();t.arm=true;selected=t}
   render();ui();
