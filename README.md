@@ -3,6 +3,8 @@
 DAW web minimalista focado em gravação e plugins. Arquivo único, sem dependências.
 
 - Gravação multitrack com overdub, monitor de entrada e compensação de latência
+- Gravação multicanal: várias trilhas armadas gravam juntas, cada uma escolhendo o canal da interface de áudio (e1, e2…)
+- Celular: cabeçalho rolável, gaveta de plugins, zoom com dois dedos, toque para selecionar e depois arrastar clipes
 - Rack de plugins por trilha e no master: delay com editor visual (sync com o bpm, ping-pong, filtro de tom), reverb com editor visual (salas, RT60, pré-delay, abafar agudos, corte de graves), EQ visual (6 bandas com curva arrastável e espectro), EQ simples, compressor com editor visual (curva de transferência, nível ao vivo e medidor de redução de ganho), reverb, delay, drive, chorus, filtro, phaser, flanger, tremolo, bitcrush, limiter, noise gate
 - Plugins de terceiros via WAM (Web Audio Modules): cole a URL do index.js do plugin (experimental)
 - Afinador (correção de pitch tipo auto-tune): selecione um clipe e clique em "afinar"; escolha tom, escala, força e velocidade

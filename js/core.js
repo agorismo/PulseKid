@@ -6,3 +6,8 @@ let micStream,micSrc,micAn,worklet,chunks=[];
 let loopOn=false,loopA=0,loopB=0,metro=false,nextBeat=0,lapPending=false,counting=false,countOsc=[];
 const tracks=[];
 const M={name:'master',vol:.9,fx:[],master:true};
+/* largura do cabeçalho das trilhas: menor no celular */
+let HW=220;
+const mqMobile=matchMedia('(max-width:720px)');
+const setHW=()=>{HW=mqMobile.matches?150:220;document.documentElement.style.setProperty('--hw',HW+'px')};
+setHW();mqMobile.addEventListener('change',()=>{setHW();if(typeof render==='function'&&tracks.length)render()});

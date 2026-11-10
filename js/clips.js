@@ -42,9 +42,9 @@ function clipDown(e,t,c,el){
     else if(mode==='fi'){nv.fi=Math.max(0,Math.min(o.dur-o.fo,o.fi+dx));fadeUI(el,nv.fi,nv.fo)}
     else if(mode==='fo'){nv.fo=Math.max(0,Math.min(o.dur-o.fi,o.fo-dx));fadeUI(el,nv.fi,nv.fo)}
   };
-  const up=()=>{removeEventListener('pointermove',mv);removeEventListener('pointerup',up);
+  const up=()=>{removeEventListener('pointermove',mv);removeEventListener('pointerup',up);removeEventListener('pointercancel',up);
     if(!moved)return;pushUndo();c.start=nv.start;c.off=nv.off;c.dur=nv.dur;c.fi=Math.min(nv.fi,nv.dur);c.fo=Math.min(nv.fo,nv.dur-c.fi);
     if(nv.track!==t){t.clips.splice(t.clips.indexOf(c),1);nv.track.clips.push(c)}
     render();refreshPlay()};
-  addEventListener('pointermove',mv);addEventListener('pointerup',up);
+  addEventListener('pointermove',mv);addEventListener('pointerup',up);addEventListener('pointercancel',up);
 }

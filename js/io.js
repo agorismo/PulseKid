@@ -4,8 +4,8 @@ const buf=new Float32Array(1024);
 function lvl(a){a.getFloatTimeDomainData(buf);let s=0;for(const v of buf)s+=v*v;return Math.min(1,Math.sqrt(s/buf.length)*3)}
 function fmt(p){return String(Math.floor(p/60)).padStart(2,'0')+':'+(p%60).toFixed(1).padStart(4,'0')}
 function frame(){
-  const p=pos();$('#time').textContent=fmt(p);$('#ph').style.left=(220+p*pps)+'px';
-  if(playing||recording){const sc=$('#scroll'),x=220+p*pps;if(x>sc.scrollLeft+sc.clientWidth-60||x<sc.scrollLeft+220)sc.scrollLeft=Math.max(0,x-300)}
+  const p=pos();$('#time').textContent=fmt(p);$('#ph').style.left=(HW+p*pps)+'px';
+  if(playing||recording){const sc=$('#scroll'),x=HW+p*pps;if(x>sc.scrollLeft+sc.clientWidth-60||x<sc.scrollLeft+HW)sc.scrollLeft=Math.max(0,x-300)}
   if(recording&&rec){const w=Math.max(0,(p-rec.from)*pps)+'px';rec.items.forEach(it=>{if(it.pv)it.pv.style.width=w});
     if(p+5>D){D+=30;render();rec.items.forEach(addPrev)}}
   $('#om').style.width=lvl(an)*100+'%';$('#mm').style.width=(micAn?lvl(micAn):0)*100+'%';

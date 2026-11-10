@@ -4,6 +4,15 @@ $('#zi').onclick=()=>{pps=Math.min(240,pps*1.5);render()};$('#zo').onclick=()=>{
 const applyTh=()=>document.documentElement.style.setProperty('--th',th+'px');
 $('#hvi').onclick=()=>{th=Math.min(300,Math.round(th*1.3));applyTh();render()};
 $('#hvo').onclick=()=>{th=Math.max(88,Math.round(th/1.3));applyTh();render()};
+/* celular: gaveta de plugins e zoom com dois dedos */
+$('#fxb').onclick=()=>document.body.classList.toggle('fxopen');
+(()=>{const sc=$('#scroll');let d0=0,p0=60,last=0;const dist=t=>Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
+  sc.addEventListener('touchstart',e=>{if(e.touches.length===2){d0=dist(e.touches);p0=pps;last=pps}},{passive:true});
+  sc.addEventListener('touchmove',e=>{if(e.touches.length!==2||!d0)return;e.preventDefault();
+    const np=Math.max(15,Math.min(240,p0*dist(e.touches)/d0));if(Math.abs(np/last-1)<.06)return;
+    const cx=(e.touches[0].clientX+e.touches[1].clientX)/2-sc.getBoundingClientRect().left,t=(sc.scrollLeft+cx-HW)/pps;
+    last=pps=np;render();sc.scrollLeft=Math.max(0,t*pps+HW-cx)},{passive:false});
+  sc.addEventListener('touchend',e=>{if(e.touches.length<2)d0=0})})();
 let tt;function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('s');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('s'),2200)}
 document.addEventListener('click',e=>{if(e.target.tagName==='BUTTON')e.target.blur()});
 addEventListener('keydown',e=>{

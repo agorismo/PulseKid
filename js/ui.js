@@ -55,7 +55,7 @@ function fadeUI(el,fi,fo){
 }
 function drawLoop(){
   document.querySelectorAll('.lp').forEach(e=>e.remove());if(loopB<=loopA+.01)return;
-  const cls=loopOn?' act':'',sh=document.createElement('div');sh.className='lp shade'+cls;sh.style.left=(220+loopA*pps)+'px';sh.style.width=(loopB-loopA)*pps+'px';$('#inner').appendChild(sh);
+  const cls=loopOn?' act':'',sh=document.createElement('div');sh.className='lp shade'+cls;sh.style.left=(HW+loopA*pps)+'px';sh.style.width=(loopB-loopA)*pps+'px';$('#inner').appendChild(sh);
   const rb=document.createElement('div');rb.className='lp rb'+cls;rb.style.left=loopA*pps+'px';rb.style.width=(loopB-loopA)*pps+'px';const rl=$('.ruler .lane');if(rl)rl.appendChild(rb);
 }
 function drawWave(cv,c){
