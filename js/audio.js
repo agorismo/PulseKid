@@ -64,29 +64,34 @@ $('#bpm').onchange=()=>{render();if(playing)metroReset(pos())};
 
 /* ---------- gravação ---------- */
 const WK=`class R extends AudioWorkletProcessor{constructor(){super();this.on=false;this.port.onmessage=e=>{this.on=e.data}}process(i){if(this.on&&i[0]&&i[0][0])this.port.postMessage(i[0][0].slice());return true}}registerProcessor('rec',R)`;
+let micCh=1,micSplit=null,recZ=null;
+/* uma entrada (interface) com N canais; cada trilha armada grava o canal escolhido em t.ch */
 async function setupMic(){
   if(micStream&&micStream.active&&micStream._dev===$('#dev').value)return;
   if(micStream)micStream.getTracks().forEach(t=>t.stop());
+  try{micSrc&&micSrc.disconnect();micSplit&&micSplit.disconnect()}catch{}
   const id=$('#dev').value;
-  micStream=await navigator.mediaDevices.getUserMedia({audio:{deviceId:id?{exact:id}:undefined,echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:1}});
+  micStream=await navigator.mediaDevices.getUserMedia({audio:{deviceId:id?{exact:id}:undefined,echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:{ideal:32}}});
+  const n=Math.max(1,Math.min(32,micStream.getAudioTracks()[0].getSettings().channelCount||1)),changed=n!==micCh;micCh=n;
   micStream._dev=id;micSrc=ac.createMediaStreamSource(micStream);micAn=ac.createAnalyser();micAn.fftSize=1024;micSrc.connect(micAn);
-  if(worklet)micSrc.connect(worklet);
+  micSplit=ac.createChannelSplitter(micCh);micSrc.connect(micSplit);
   const devs=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='audioinput'),sel=$('#dev');
   sel.innerHTML='<option value="">padrão</option>'+devs.map(d=>`<option value="${d.deviceId}">${d.label||'entrada'}</option>`).join('');sel.value=id;
-  updateMon();
+  updateMon();if(changed)render();
 }
-function updateMon(){if(!micSrc)return;tracks.forEach(t=>{try{micSrc.disconnect(t.in)}catch{}if(t.arm&&t.mon)micSrc.connect(t.in)})}
+const chOf=t=>Math.min(t.ch||0,micCh-1);
+function updateMon(){if(!micSplit)return;tracks.forEach(t=>{try{micSplit.disconnect(t.in)}catch{}if(t.arm&&t.mon)micSplit.connect(t.in,chOf(t),0)})}
 $('#dev').onchange=()=>setupMic().catch(e=>toast('erro no microfone'));
 const cntOn=()=>$('#cnt').classList.contains('on');
 $('#cnt').onclick=e=>e.currentTarget.classList.toggle('on');
 function cancelCount(){counting=false;countOsc.forEach(o=>{try{o.stop()}catch{}});countOsc=[];ui()}
+function addPrev(it){const lane=$('#lane'+it.t.id);if(!lane)return;const pv=document.createElement('div');pv.className='prev';pv.style.left=rec.from*pps+'px';lane.appendChild(pv);it.pv=pv}
 async function startRec(){
   if(counting)return;
-  const tr=tracks.find(t=>t.arm);if(!tr)return toast('arme uma trilha com o botão R');
+  const trs=tracks.filter(t=>t.arm);if(!trs.length)return toast('arme uma trilha com o botão R');
   try{await ac.resume();await setupMic();
-    if(!worklet){await ac.audioWorklet.addModule(URL.createObjectURL(new Blob([WK],{type:'application/javascript'})));
-      worklet=new AudioWorkletNode(ac,'rec');worklet.port.onmessage=e=>{if(recording)chunks.push(e.data)};
-      const z=ac.createGain();z.gain.value=0;worklet.connect(z);z.connect(ac.destination);micSrc.connect(worklet)}
+    if(!worklet){await ac.audioWorklet.addModule(URL.createObjectURL(new Blob([WK],{type:'application/javascript'})));worklet=true;
+      recZ=ac.createGain();recZ.gain.value=0;recZ.connect(ac.destination)}
   }catch(e){return toast('não consegui acessar o microfone')}
   if(playing)pause();
   if(cntOn()){
@@ -95,24 +100,30 @@ async function startRec(){
     await new Promise(r=>setTimeout(r,(.08+4*sp)*1000));
     if(!counting)return;counting=false;
   }
-  chunks=[];
+  const items=trs.map(t=>{const n=new AudioWorkletNode(ac,'rec'),it={t,n,chunks:[]};
+    n.port.onmessage=e=>{if(recording)it.chunks.push(e.data)};micSplit.connect(n,chOf(t),0);n.connect(recZ);return it});
   recording=true;await play();
   const lat=(ac.baseLatency||0)+(ac.outputLatency||0)+(+$('#lat').value||0)/1000;
-  rec={t:tr,start:pos0+(ac.currentTime-t0)-lat,from:pos0};
-  worklet.port.postMessage(true);
-  const lane=$('#lane'+tr.id),pv=document.createElement('div');pv.className='prev';pv.id='prev';pv.style.left=pos0*pps+'px';lane.appendChild(pv);
+  rec={items,start:pos0+(ac.currentTime-t0)-lat,from:pos0};
+  items.forEach(it=>{it.n.port.postMessage(true);addPrev(it)});
   ui();
 }
 function stopRec(){
-  if(!recording)return;worklet.port.postMessage(false);pause();recording=false;
+  if(!recording)return;const R=rec;R.items.forEach(it=>it.n.port.postMessage(false));pause();recording=false;
   setTimeout(()=>{
-    let len=chunks.reduce((a,c)=>a+c.length,0);if(!len){render();ui();return}
-    let data=new Float32Array(len),o=0;chunks.forEach(c=>{data.set(c,o);o+=c.length});chunks=[];
-    let start=rec.start;if(start<0){const cut=Math.min(len-1,Math.round(-start*ac.sampleRate));data=data.subarray(cut);start=0}
-    const b=ac.createBuffer(1,data.length,ac.sampleRate);b.copyToChannel(data,0);
-    pushUndo();const rt=rec.t,ce=start+b.duration;
-    if(rt.clips.some(c=>c.start<ce&&c.start+c.dur>start)){rt.takes.push([]);rt.ti=rt.takes.length-1;toast('take '+(rt.ti+1))}
-    selClip=addClip(rt,b,start);pos0=rec.from;render();ui();
+    let pushed=false,last=null;
+    R.items.forEach(it=>{
+      try{it.n.disconnect();micSplit.disconnect(it.n)}catch{}
+      const len=it.chunks.reduce((a,c)=>a+c.length,0);if(!len)return;
+      let data=new Float32Array(len),o=0;it.chunks.forEach(c=>{data.set(c,o);o+=c.length});
+      let start=R.start;if(start<0){const cut=Math.min(len-1,Math.round(-start*ac.sampleRate));data=data.subarray(cut);start=0}
+      const b=ac.createBuffer(1,data.length,ac.sampleRate);b.copyToChannel(data,0);
+      if(!pushed){pushUndo();pushed=true}
+      const rt=it.t,ce=start+b.duration;
+      if(rt.clips.some(c=>c.start<ce&&c.start+c.dur>start)){rt.takes.push([]);rt.ti=rt.takes.length-1;toast('take '+(rt.ti+1))}
+      last=addClip(rt,b,start);
+    });
+    if(last)selClip=last;pos0=R.from;render();ui();
   },80);
 }
 $('#rc').onclick=()=>recording?stopRec():counting?cancelCount():startRec();

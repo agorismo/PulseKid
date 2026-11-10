@@ -6,8 +6,8 @@ function fmt(p){return String(Math.floor(p/60)).padStart(2,'0')+':'+(p%60).toFix
 function frame(){
   const p=pos();$('#time').textContent=fmt(p);$('#ph').style.left=(220+p*pps)+'px';
   if(playing||recording){const sc=$('#scroll'),x=220+p*pps;if(x>sc.scrollLeft+sc.clientWidth-60||x<sc.scrollLeft+220)sc.scrollLeft=Math.max(0,x-300)}
-  if(recording&&rec){const pv=$('#prev');if(pv)pv.style.width=Math.max(0,(p-rec.from)*pps)+'px';
-    if(p+5>D){D+=30;render();const lane=$('#lane'+rec.t.id),n=document.createElement('div');n.className='prev';n.id='prev';n.style.left=rec.from*pps+'px';lane.appendChild(n)}}
+  if(recording&&rec){const w=Math.max(0,(p-rec.from)*pps)+'px';rec.items.forEach(it=>{if(it.pv)it.pv.style.width=w});
+    if(p+5>D){D+=30;render();rec.items.forEach(addPrev)}}
   $('#om').style.width=lvl(an)*100+'%';$('#mm').style.width=(micAn?lvl(micAn):0)*100+'%';
   requestAnimationFrame(frame);
 }

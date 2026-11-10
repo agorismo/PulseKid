@@ -19,7 +19,7 @@ function render(){
     if(t.master){r.innerHTML=`<div class="head"><div class="r1"><b style="flex:1">master</b></div><div class="r3"><span>vol</span><input type="range" min="0" max="1.2" step=".01" value="${t.vol}" data-a="vol"></div></div><div class="lane" style="width:${D*pps}px;height:60px"></div>`}
     else r.innerHTML=`<div class="head">
       <div class="r1"><input class="nm" value="${t.name.replace(/"/g,'&quot;')}">${t.takes.length>1?`<button data-a="tk" title="trocar de take · shift+clique apaga o take atual">t${t.ti+1}/${t.takes.length}</button>`:''}<button data-a="del">×</button></div>
-      <div class="r2"><button class="arm ${t.arm?'on':''}" data-a="arm">R</button><button class="${t.mon?'on':''}" data-a="mon" title="monitorar entrada (use fones)">in</button><button class="${t.mute?'on':''}" data-a="mute">M</button><button class="${t.solo?'on':''}" data-a="solo">S</button></div>
+      <div class="r2"><button class="arm ${t.arm?'on':''}" data-a="arm">R</button>${micCh>1?`<select class="chs" data-a="ch" title="canal de entrada desta trilha">${Array.from({length:micCh},(_,i)=>`<option value="${i}"${i===(t.ch||0)?' selected':''}>e${i+1}</option>`).join('')}</select>`:''}<button class="${t.mon?'on':''}" data-a="mon" title="monitorar entrada (use fones)">in</button><button class="${t.mute?'on':''}" data-a="mute">M</button><button class="${t.solo?'on':''}" data-a="solo">S</button></div>
       <div class="r3"><span>vol</span><input type="range" min="0" max="1.2" step=".01" value="${t.vol}" data-a="vol"><span>pan</span><input type="range" min="-1" max="1" step=".01" value="${t.pan}" data-a="pan"></div></div>
       <div class="lane" id="lane${t.id}" style="width:${D*pps}px"></div>`;
     const lane=$('.lane',r);
@@ -32,13 +32,14 @@ function render(){
       el.onpointerdown=e=>clipDown(e,t,c,el);lane.appendChild(el)});
     r.onclick=e=>{if(e.target.closest('.head')&&selected!==t)select(t)};
     r.querySelectorAll('[data-a]').forEach(el=>{const a=el.dataset.a;
-      el[el.type==='range'?'oninput':'onclick']=e=>{
+      el[el.type==='range'?'oninput':el.tagName==='SELECT'?'onchange':'onclick']=e=>{
         if(a==='vol'){t.vol=+el.value;if(t.master)M.outN.gain.value=t.vol;else mix()}
         if(a==='pan'){t.pan=+el.value;mix()}
         if(a==='mute'){t.mute=!t.mute;el.classList.toggle('on');mix()}
         if(a==='solo'){t.solo=!t.solo;el.classList.toggle('on');mix()}
+        if(a==='ch'){t.ch=+el.value;updateMon()}
         if(a==='mon'){t.mon=!t.mon;el.classList.toggle('on');updateMon()}
-        if(a==='arm'){const v=!t.arm;tracks.forEach(x=>x.arm=false);t.arm=v;render();if(v)setupMic().then(updateMon).catch(()=>toast('permita o microfone'))}
+        if(a==='arm'){t.arm=!t.arm;const v=t.arm;render();if(v)setupMic().then(updateMon).catch(()=>toast('permita o microfone'))}
         if(a==='tk'){if(e.shiftKey){if(!confirm('Apagar este take?'))return;pushUndo();t.takes.splice(t.ti,1);t.ti=Math.max(0,t.ti-1)}else{pushUndo();t.ti=(t.ti+1)%t.takes.length}
           selClip=null;render();refreshPlay();return}
         if(a==='del'){if(playing)pause();try{t.panN.disconnect();t.in.disconnect()}catch{}tracks.splice(tracks.indexOf(t),1);if(selected===t)selected=M;if(selClip&&!ownerOf(selClip))selClip=null;render();renderFx()}

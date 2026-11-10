@@ -10,7 +10,7 @@ async function refreshWam(){
 }
 const getMeta=()=>({v:1,bpm:+$('#bpm').value||120,metro,cnt:cntOn(),snap:snapOn(),loop:{a:loopA,b:loopB,on:loopOn},pps,th,
   master:{vol:M.vol,fx:M.fx.map(fxMeta)},
-  tracks:tracks.map(t=>({name:t.name,vol:t.vol,pan:t.pan,mute:t.mute,solo:t.solo,arm:t.arm,fx:t.fx.map(fxMeta),
+  tracks:tracks.map(t=>({name:t.name,vol:t.vol,pan:t.pan,mute:t.mute,solo:t.solo,arm:t.arm,ch:t.ch||0,fx:t.fx.map(fxMeta),
     ti:t.ti,takes:t.takes.map(a=>a.map(c=>({b:bidOf(c.buf),s:+c.start.toFixed(4),o:+c.off.toFixed(4),d:+c.dur.toFixed(4),fi:+(c.fi||0).toFixed(4),fo:+(c.fo||0).toFixed(4)})))}))});
 async function saveProject(force){
   if(recording||saving)return;await refreshWam();const meta=JSON.stringify(getMeta());if(!force&&meta===lastMeta)return;
@@ -33,7 +33,7 @@ async function loadProject(){
     M.vol=m.master.vol;M.outN.gain.value=M.vol;M.fx=m.master.fx.map(f=>({...f}));rebuild(M);
     const cache=new Map();
     for(const tm of m.tracks){
-      const t=mkTrack(tm.name,{vol:tm.vol,pan:tm.pan,mute:tm.mute,solo:tm.solo,arm:tm.arm,fx:tm.fx.map(f=>({...f}))});
+      const t=mkTrack(tm.name,{vol:tm.vol,pan:tm.pan,mute:tm.mute,solo:tm.solo,arm:tm.arm,ch:tm.ch||0,fx:tm.fx.map(f=>({...f}))});
       t.takes=[];for(const arr of (tm.takes||[tm.clips||[]])){const tk=[];t.takes.push(tk);
       for(const cm of arr){let b=cache.get(cm.b);
         if(!b){const r=await dbGet('b:'+cm.b);if(!r)continue;b=ac.createBuffer(r.ch.length,r.ch[0].length,r.sr);r.ch.forEach((d,i)=>b.copyToChannel(d,i));b._bid=cm.b;cache.set(cm.b,b);stored.add(cm.b)}
